@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Drawing Notepad - 다양한 펜 및 맵 기능</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/OBJExporter.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FontLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/TextGeometry.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/TextureLoader.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="container">
+        <!-- 새로운 메뉴바 -->
+        <div id="menu-bar">
+            <div class="menu-title">
+                <span>✏️</span>
+                <span>3D Drawing</span>
+            </div>
+            
+            <div class="menu-group">
+                <button class="menu-btn" onclick="togglePenPanel()">
+                    <span class="menu-icon">🖊️</span>
+                    <span>펜</span>
+                </button>
+                <button class="menu-btn" onclick="toggleShapesPanel()">
+                    <span class="menu-icon">🔷</span>
+                    <span>도형</span>
+                </button>
+                <button class="menu-btn" onclick="toggleMapPanel()">
+                    <span class="menu-icon">🗺️</span>
+                    <span>맵</span>
+                </button>
+                <button class="menu-btn" onclick="toggleTextPanel()">
+                    <span class="menu-icon">🔤</span>
+                    <span>텍스트</span>
+                </button>
+                <button class="menu-btn" onclick="toggleImagePanel()">
+                    <span class="menu-icon">🖼️</span>
+                    <span>이미지</span>
+                </button>
+                <button class="menu-btn" id="shapeDrawBtn" onclick="toggleShapeDrawingMode()">
+                    <span class="menu-icon">📐</span>
+                    <span>도형 그리기</span>
+                </button>
+                <button class="menu-btn" id="paintBtn" onclick="togglePaintPanel()">
+                    <span class="menu-icon">🎨</span>
+                    <span>페인트</span>
+                </button>
+                <button class="menu-btn" id="bridgeBtn" onclick="toggleBridgeMode()">
+                    <span class="menu-icon">🌉</span>
+                    <span>브리지</span>
+                </button>
+                <button class="menu-btn" onclick="toggleAudioPanel()">
+                    <span class="menu-icon">🎵</span>
+                    <span>오디오</span>
+                </button>
+                <button class="menu-btn" onclick="toggleRotatePanel()">
+                    <span class="menu-icon">🔄</span>
+                    <span>회전</span>
+                </button>
+            </div>
+            
+            <div class="menu-group">
+                <button class="menu-btn" id="eraserBtn" onclick="toggleEraser()">
+                    <span class="menu-icon">🧹</span>
+                    <span>지우개</span>
+                </button>
+                <button class="menu-btn" id="pointerBtn" onclick="togglePointer()">
+                    <span class="menu-icon">👉</span>
+                    <span>포인터</span>
+                </button>
+                <button class="menu-btn" id="cameraBtn" onclick="toggleCameraMode()">
+                    <span class="menu-icon">📷</span>
+                    <span>카메라</span>
+                </button>
+            </div>
+            
+            <div class="menu-group">
+                <button class="menu-btn" id="undoBtn" onclick="undo()" disabled>
+                    <span class="menu-icon">↶</span>
+                    <span>되돌리기</span>
+                </button>
+                <button class="menu-btn" onclick="resetCamera()">
+                    <span class="menu-icon">🔄</span>
+                    <span>카메라 리셋</span>
+                </button>
+                <button class="menu-btn" onclick="clearDrawings()">
+                    <span class="menu-icon">🗑️</span>
+                    <span>전체 삭제</span>
+                </button>
+                <button class="menu-btn" onclick="saveAsOBJ()">
+                    <span class="menu-icon">💾</span>
+                    <span>저장</span>
+                </button>
+            </div>
+            
+            <div class="mode-indicator" id="modeIndicator">드로잉 모드</div>
+        </div>
+        
+        <!-- 기존 툴바 (간소화) -->
+        <div id="toolbar">
+            <div class="toolbar-group">
+                <label>색상:</label>
+                <input type="color" id="colorPicker" value="#ff0000">
+            </div>
+            
+            <div class="toolbar-group">
+                <label>펜 크기:</label>
+                <input type="range" id="brushSize" min="1" max="15" value="5">
+                <span id="sizeValue">5</span>
+            </div>
+            
+            <div class="toolbar-group">
+                <label>평면:</label>
+                <select id="planeSelector">
+                    <option value="horizontal">수평 (XZ)</option>
+                    <option value="vertical-x">수직 (YZ)</option>
+                    <option value="vertical-z">수직 (XY)</option>
+                </select>
+            </div>
+            
+            <div class="toolbar-group">
+                <label>현재 펜:</label>
+                <span id="currentPenDisplay">일반 펜</span>
+            </div>
+        </div>
+        
+        <!-- 펜 패널 -->
+        <div id="pen-panel">
+            <h3>펜 종류 선택</h3>
+            <button class="pen-btn active" onclick="selectPenType('normal')">
+                <span class="pen-preview">━━━━━</span>
+                <span>일반 펜</span>
+                <div class="pen-description">
+                    <strong>일반 펜</strong><br>
+                    기본적인 실선을 그립니다. 부드러운 곡선을 만들 때 적합합니다.
+                </div>
+            </button>
+            <button class="pen-btn" onclick="selectPenType('double')">
+                <span class="pen-preview">⫸⫷</span>
+                <span>이중선 펜</span>
+                <div class="pen-description">
+                    <strong>이중선 펜</strong><br>
+                    두 개의 평행한 선을 동시에 그립니다. 강조 표시에 적합합니다.
+                </div>
+            </button>
+            <button class="pen-btn" onclick="selectPenType('dotted')">
+                <span class="pen-preview">⸰⸰⸰⸰⸰</span>
+                <span>점선 펜</span>
+                <div class="pen-description">
+                    <strong>점선 펜</strong><br>
+                    일정 간격으로 점선을 그립니다. 경계선이나 가이드라인에 적합합니다.
+                </div>
+            </button>
+            <button class="pen-btn" onclick="selectPenType('dashed')">
+                <span class="pen-preview">╍╍╍╍╍</span>
+                <span>파선 펜</span>
+                <div class="pen-description">
+                    <strong>파선 펜</strong><br>
+                    짧은 선분들로 이루어진 파선을 그립니다. 점선보다 두드러진 효과를 줍니다.
+                </div>
+            </button>
+            <button class="pen-btn" onclick="selectPenType('variable')">
+                <span class="pen-preview">𓆏𓆏𓆏</span>
+                <span>굵기 변하는 펜</span>
+                <div class="pen-description">
+                    <strong>굵기 변하는 펜</strong><br>
+                    그리는 동안 펜의 굵기가 변화합니다. 속도에 따라 굵기가 달라집니다.
+                </div>
+            </button>
+            <button class="pen-btn" onclick="selectPenType('wave')">
+                <span class="pen-preview">〰️〰️〰️</span>
+                <span>파도 펜</span>
+                <div class="pen-description">
+                    <strong>파도 펜</strong><br>
+                    파도 모양의 곡선을 그립니다. 장식적인 효과를 주고 싶을 때 사용합니다.
+                </div>
+            </button>
+            <button class="pen-btn" onclick="selectPenType('zigzag')">
+                <span class="pen-preview">⦚⦚⦚⦚⦚</span>
+                <span>지그재그 펜</span>
+                <div class="pen-description">
+                    <strong>지그재그 펜</strong><br>
+                    지그재그 모양의 선을 그립니다. 번개나 전기 효과를 표현할 때 적합합니다.
+                </div>
+            </button>
+            <button class="pen-btn" onclick="selectPenType('spiral')">
+                <span class="pen-preview">𓍝𓍝𓍝</span>
+                <span>나선 펜</span>
+                <div class="pen-description">
+                    <strong>나선 펜</strong><br>
+                    나선형 패턴을 그립니다. 장식적인 디자인에 적합합니다.
+                </div>
+            </button>
+        </div>
+        
+        <!-- 맵 패널 -->
+        <div id="map-panel">
+            <h3>지형 추가</h3>
+            <button class="map-btn" onclick="addPlain()">
+                <span class="map-preview">⬜</span>
+                <span>평지</span>
+                <div class="map-description">
+                    <strong>평지</strong><br>
+                    넓고 평평한 지형입니다. 건물이나 구조물을 배치하기에 적합합니다.
+                </div>
+            </button>
+            <button class="map-btn" onclick="addMountain()">
+                <span class="map-preview">⛰️</span>
+                <span>산</span>
+                <div class="map-description">
+                    <strong>산</strong><br>
+                    높고 뾰족한 산 지형입니다. 높은 고도와 가파른 경사를 가집니다.
+                </div>
+            </button>
+            <button class="map-btn" onclick="addHill()">
+                <span class="map-preview">🌄</span>
+                <span>언덕</span>
+                <div class="map-description">
+                    <strong>언덕</strong><br>
+                    부드러운 경사의 언덕 지형입니다. 자연스러운 지형을 만들 때 적합합니다.
+                </div>
+            </button>
+            <button class="map-btn" onclick="addValley()">
+                <span class="map-preview">🏞️</span>
+                <span>계곡</span>
+                <div class="map-description">
+                    <strong>계곡</strong><br>
+                    움푹 패인 계곡 지형입니다. 강이나 호수를 배치하기에 적합합니다.
+                </div>
+            </button>
+            <button class="map-btn" onclick="addBasin()">
+                <span class="map-preview">🕳️</span>
+                <span>분지</span>
+                <div class="map-description">
+                    <strong>분지</strong><br>
+                    가운데가 움푹 패인 분지 지형입니다. 호수나 저지대를 표현할 때 사용합니다.
+                </div>
+            </button>
+            <button class="map-btn" onclick="addPlateau()">
+                <span class="map-preview">🏔️</span>
+                <span>고원</span>
+                <div class="map-description">
+                    <strong>고원</strong><br>
+                    평평한 상단과 가파른 측면을 가진 고원 지형입니다.
+                </div>
+            </button>
+            <button class="map-btn" onclick="addRidge()">
+                <span class="map-preview">🏞️</span>
+                <span>능선</span>
+                <div class="map-description">
+                    <strong>능선</strong><br>
+                    뾰족한 산등성이를 가진 능선 지형입니다. 산맥을 표현할 때 사용합니다.
+                </div>
+            </button>
+            <button class="map-btn" onclick="addLake()">
+                <span class="map-preview">🌊</span>
+                <span>호수</span>
+                <div class="map-description">
+                    <strong>호수</strong><br>
+                    물이 고인 호수 지형입니다. 수면 효과와 함께 추가됩니다.
+                </div>
+            </button>
+            <button class="map-btn" onclick="addDesert()">
+                <span class="map-preview">🏜️</span>
+                <span>사막</span>
+                <div class="map-description">
+                    <strong>사막</strong><br>
+                    모래 언덕이 있는 사막 지형입니다. 드넓은 사막 풍경을 표현합니다.
+                </div>
+            </button>
+        </div>
+        
+        <!-- 도형 패널 -->
+        <div id="shapes-panel">
+            <h3>기본 도형</h3>
+            <button class="shape-btn" onclick="addCube()">
+                Cube
+                <span class="shape-preview">⬛</span>
+                <div class="shape-description">
+                    <strong>Cube</strong><br>
+                    3D 정육면체 객체입니다. 모든 면이 정사각형으로 이루어져 있습니다.
+                </div>
+            </button>
+            <button class="shape-btn" onclick="addSphere()">
+                Sphere
+                <span class="shape-preview">🔵</span>
+                <div class="shape-description">
+                    <strong>Sphere</strong><br>
+                    3D 구형 객체입니다. 완전한 대칭 형태를 가지고 있습니다.
+                </div>
+            </button>
+            <button class="shape-btn" onclick="addCylinder()">
+                Cylinder
+                <span class="shape-preview">🛢️</span>
+                <div class="shape-description">
+                    <strong>Cylinder</strong><br>
+                    3D 원기둥 객체입니다. 위아래가 평행한 원형 단면을 가집니다.
+                </div>
+            </button>
+            <button class="shape-btn" onclick="addCone()">
+                Cone
+                <span class="shape-preview">🔺</span>
+                <div class="shape-description">
+                    <strong>Cone</strong><br>
+                    3D 원뿔 객체입니다. 밑면이 원형이고 꼭짓점으로 좁아집니다.
+                </div>
+            </button>
+            <button class="shape-btn" onclick="addPyramid()">
+                Pyramid
+                <span class="shape-preview">🔺</span>
+                <div class="shape-description">
+                    <strong>Pyramid</strong><br>
+                    3D 피라미드 객체입니다. 사각형 밑면과 삼각형 측면을 가집니다.
+                </div>
+            </button>
+            <button class="shape-btn" onclick="addTorus()">
+                Torus
+                <span class="shape-preview">🍩</span>
+                <div class="shape-description">
+                    <strong>Torus</strong><br>
+                    3D 도넛형 객체입니다. 원형 단면이 원주를 따라 회전한 형태입니다.
+                </div>
+            </button>
+            <button class="shape-btn" onclick="addPlane()">
+                Plane
+                <span class="shape-preview">⬜</span>
+                <div class="shape-description">
+                    <strong>Plane</strong><br>
+                    2D 평면 객체입니다. 얇은 사각형 형태를 가집니다.
+                </div>
+            </button>
+            <button class="shape-btn" onclick="addTree()">
+                Tree
+                <span class="shape-preview">🌳</span>
+                <div class="shape-description">
+                    <strong>Tree</strong><br>
+                    3D 나무 객체입니다. 줄기와 여러 층의 잎으로 구성되어 있습니다.
+                </div>
+            </button>
+            
+            <h3>선 및 곡선</h3>
+            <button class="shape-btn" onclick="addStraightLine()">
+                Straight Line
+                <span class="shape-preview">📏</span>
+                <div class="shape-description">
+                    <strong>Straight Line</strong><br>
+                    직선 객체입니다. 두 점을 연결하는 일직선 형태입니다.
+                </div>
+            </button>
+            <button class="shape-btn" onclick="addCurvedLine()">
+                Curved Line
+                <span class="shape-preview">〰️</span>
+                <div class="shape-description">
+                    <strong>Curved Line</strong><br>
+                    곡선 객체입니다. 부드러운 곡선 형태를 가집니다.
+                </div>
+            </button>
+            <button class="shape-btn" onclick="addSpiral()">
+                Spiral
+                <span class="shape-preview">🌀</span>
+                <div class="shape-description">
+                    <strong>Spiral</strong><br>
+                    나선형 객체입니다. 원을 그리며 상승하는 형태입니다.
+                </div>
+            </button>
+            <button class="shape-btn" onclick="addStar()">
+                Star
+                <span class="shape-preview">⭐</span>
+                <div class="shape-description">
+                    <strong>Star</strong><br>
+                    별 모양 객체입니다. 5개의 뾰족한 끝을 가진 3D 형태입니다.
+                </div>
+            </button>
+            <button class="shape-btn" onclick="addHeart()">
+                Heart
+                <span class="shape-preview">❤️</span>
+                <div class="shape-description">
+                    <strong>Heart</strong><br>
+                    하트 모양 객체입니다. 로맨틱한 3D 하트 형태입니다.
+                </div>
+            </button>
+            <button class="shape-btn" onclick="addArrow()">
+                Arrow
+                <span class="shape-preview">➡️</span>
+                <div class="shape-description">
+                    <strong>Arrow</strong><br>
+                    화살표 객체입니다. 방향을 표시하는 3D 화살표 형태입니다.
+                </div>
+            </button>
+        </div>
+        
+        <!-- 도형 그리기 패널 -->
+        <div id="ctrl-shapes-panel">
+            <h3>도형 그리기 모드</h3>
+            <div class="ctrl-shapes-grid">
+                <button class="ctrl-shape-btn" id="rectBtn" onclick="selectShapeType('rectangle')">
+                    <span class="ctrl-shape-icon">⬜</span>
+                    <span>사각형</span>
+                    <div class="ctrl-shape-size-controls">
+                        <label>드래그로 크기 조절</label>
+                    </div>
+                </button>
+                <button class="ctrl-shape-btn" id="circleBtn" onclick="selectShapeType('circle')">
+                    <span class="ctrl-shape-icon">🔵</span>
+                    <span>원</span>
+                    <div class="ctrl-shape-size-controls">
+                        <label>드래그로 크기 조절</label>
+                    </div>
+                </button>
+                <button class="ctrl-shape-btn" id="triangleBtn" onclick="selectShapeType('triangle')">
+                    <span class="ctrl-shape-icon">🔺</span>
+                    <span>삼각형</span>
+                    <div class="ctrl-shape-size-controls">
+                        <label>드래그로 크기 조절</label>
+                    </div>
+                </button>
+                <button class="ctrl-shape-btn" id="ellipseBtn" onclick="selectShapeType('ellipse')">
+                    <span class="ctrl-shape-icon">⭕</span>
+                    <span>타원</span>
+                    <div class="ctrl-shape-size-controls">
+                        <label>드래그로 크기 조절</label>
+                    </div>
+                </button>
+            </div>
+            <div style="margin-top: 12px; text-align: center;">
+                <button class="btn-cancel-text" onclick="hideCtrlShapesPanel()" style="width: 100%;">닫기</button>
+            </div>
+        </div>
+        
+        <!-- 텍스트 패널 -->
+        <div id="text-panel">
+            <h3>3D 텍스트 추가</h3>
+            <div class="text-input-group">
+                <label for="textInput">텍스트 (한글 지원):</label>
+                <input type="text" id="textInput" placeholder="텍스트를 입력하세요" maxlength="50" value="안녕 3D!">
+            </div>
+            
+            <div class="text-input-group">
+                <label for="textSize">크기:</label>
+                <input type="range" id="textSize" min="0.1" max="2" step="0.1" value="0.5">
+                <span id="textSizeValue">0.5</span>
+            </div>
+            
+            <div class="text-input-group">
+                <label for="textDepth">깊이:</label>
+                <input type="range" id="textDepth" min="0.1" max="1" step="0.1" value="0.2">
+                <span id="textDepthValue">0.2</span>
+            </div>
+            
+            <div class="text-input-group">
+                <label for="textFont">폰트:</label>
+                <select id="textFont">
+                    <option value="helvetiker">Helvetiker</option>
+                    <option value="optimer">Optimer</option>
+                    <option value="gentilis">Gentilis</option>
+                    <option value="notosanskr">Noto Sans KR (한글)</option>
+                </select>
+            </div>
+            
+            <div class="text-buttons">
+                <button class="btn-add-text" onclick="addText()">텍스트 추가</button>
+                <button class="btn-cancel-text" onclick="toggleTextPanel()">취소</button>
+            </div>
+        </div>
+        
+        <!-- 이미지 패널 -->
+        <div id="image-panel">
+            <h3>이미지 추가</h3>
+            <div class="image-input-group">
+                <label for="imageUrl">이미지 URL:</label>
+                <input type="text" id="imageUrl" placeholder="이미지 URL을 입력하세요" value="https://threejs.org/examples/textures/crate.gif">
+            </div>
+            
+            <div class="image-input-group">
+                <label for="imageWidth">너비:</label>
+                <input type="range" id="imageWidth" min="0.5" max="5" step="0.1" value="2">
+                <span id="imageWidthValue">2</span>
+            </div>
+            
+            <div class="image-input-group">
+                <label for="imageHeight">높이:</label>
+                <input type="range" id="imageHeight" min="0.5" max="5" step="0.1" value="2">
+                <span id="imageHeightValue">2</span>
+            </div>
+            
+            <div class="image-buttons">
+                <button class="btn-add-image" onclick="addImage()">이미지 추가</button>
+                <button class="btn-cancel-image" onclick="toggleImagePanel()">취소</button>
+            </div>
+        </div>
+        
+        <!-- 페인트 패널 -->
+        <div id="paint-panel">
+            <h3>페인트 채우기</h3>
+            <div class="paint-input-group">
+                <label for="paintSize">채우기 크기:</label>
+                <input type="range" id="paintSize" min="1" max="10" step="0.5" value="3">
+                <span id="paintSizeValue">3</span>
+            </div>
+            
+            <div class="paint-input-group">
+                <label for="paintShape">채우기 모양:</label>
+                <select id="paintShape">
+                    <option value="square">사각형</option>
+                    <option value="circle">원형</option>
+                </select>
+            </div>
+            
+            <div class="paint-buttons">
+                <button class="btn-start-paint" onclick="startPaintMode()">페인트 시작</button>
+                <button class="btn-cancel-paint" onclick="togglePaintPanel()">취소</button>
+            </div>
+        </div>
+        
+        <!-- 브리지 패널 -->
+        <div id="bridge-panel">
+            <h3>객체 연결 및 채우기</h3>
+            <div class="bridge-input-group">
+                <label for="bridgeType">연결 유형:</label>
+                <select id="bridgeType">
+                    <option value="line">직선 연결</option>
+                    <option value="curve">곡선 연결</option>
+                    <option value="plane">평면 채우기</option>
+                    <option value="cylinder">실린더 연결</option>
+                    <option value="sphere">구체 연결</option>
+                </select>
+            </div>
+            
+            <div class="bridge-input-group">
+                <label for="bridgeWidth">연결 두께:</label>
+                <input type="range" id="bridgeWidth" min="0.1" max="2" step="0.1" value="0.5">
+                <span id="bridgeWidthValue">0.5</span>
+            </div>
+            
+            <div class="bridge-input-group">
+                <label for="bridgeSegments">세그먼트 수:</label>
+                <input type="range" id="bridgeSegments" min="3" max="32" step="1" value="12">
+                <span id="bridgeSegmentsValue">12</span>
+            </div>
+            
+            <div class="bridge-input-group">
+                <label for="bridgeOpacity">투명도:</label>
+                <input type="range" id="bridgeOpacity" min="0.1" max="1" step="0.1" value="0.7">
+                <span id="bridgeOpacityValue">0.7</span>
+            </div>
+            
+            <div class="bridge-buttons">
+                <button class="btn-create-bridge" onclick="createBridge()">연결 생성</button>
+                <button class="btn-cancel-bridge" onclick="toggleBridgePanel()">취소</button>
+            </div>
+        </div>
+        
+        <!-- 객체 정보 패널 -->
+        <div id="object-info">
+            <h3>객체 정보</h3>
+            <div class="object-info-item">
+                <span class="object-info-label">유형:</span>
+                <span class="object-info-value" id="infoType">-</span>
+            </div>
+            <div class="object-info-item">
+                <span class="object-info-label">이름:</span>
+                <span class="object-info-value" id="infoName">-</span>
+            </div>
+            <div class="object-info-item">
+                <span class="object-info-label">위치:</span>
+                <span class="object-info-value" id="infoPosition">-</span>
+            </div>
+            <div class="object-info-item">
+                <span class="object-info-label">색상:</span>
+                <span class="object-info-value" id="infoColor">-</span>
+            </div>
+            <div class="object-controls">
+                <button class="btn-move-object" onclick="startMovingObject()">객체 이동</button>
+                <button class="btn-close-info" onclick="closeObjectInfo()">닫기</button>
+            </div>
+        </div>
+        
+        <!-- 다중 객체 정보 패널 -->
+        <div id="multi-object-info">
+            <h3>다중 객체 정보</h3>
+            <div class="multi-object-info-item">
+                <span class="multi-object-info-label">선택된 객체:</span>
+                <span class="multi-object-info-value" id="multiInfoCount">0개</span>
+            </div>
+            <div class="multi-object-info-item">
+                <span class="multi-object-info-label">선택 모드:</span>
+                <span class="multi-object-info-value" id="multiInfoMode">드래그 선택</span>
+            </div>
+            <div class="multi-object-controls">
+                <button class="btn-move-multi-object" onclick="startMovingMultiObjects()">객체들 이동</button>
+                <button class="btn-close-multi-info" onclick="closeMultiObjectInfo()">닫기</button>
+            </div>
+        </div>
+        
+        <!-- 카메라 컨트롤 정보 -->
+        <div class="camera-controls-info" id="cameraControlsInfo">
+            <h3>카메라 컨트롤</h3>
+            <div class="control-item">
+                <span class="key">W</span>
+                <span>앞으로 이동</span>
+            </div>
+            <div class="control-item">
+                <span class="key">S</span>
+                <span>뒤로 이동</span>
+            </div>
+            <div class="control-item">
+                <span class="key">A</span>
+                <span>왼쪽 이동</span>
+            </div>
+            <div class="control-item">
+                <span class="key">D</span>
+                <span>오른쪽 이동</span>
+            </div>
+            <div class="control-item">
+                <span class="key">Q</span>
+                <span>위로 이동</span>
+            </div>
+            <div class="control-item">
+                <span class="key">E</span>
+                <span>아래로 이동</span>
+            </div>
+            <div class="control-item">
+                <span class="key">마우스 드래그</span>
+                <span>카메라 회전</span>
+            </div>
+        </div>
+        
+        <!-- 캔버스 컨테이너 -->
+        <div id="canvas-container">
+            <canvas id="canvas"></canvas>
+            
+            <!-- 선택 영역 표시 -->
+            <div id="selection-area"></div>
+            
+            <div id="instructions">
+                <h3>컨트롤</h3>
+                <p><strong>왼쪽 클릭 + 드래그:</strong> 3D 공간에 그리기</p>
+                <p><strong>오른쪽 클릭 + 드래그:</strong> 카메라 회전</p>
+                <p><strong>마우스 휠:</strong> 평면 위치 이동</p>
+                <p><strong>방향키:</strong> 평면 위치 이동</p>
+                <p><strong>Ctrl+Z / 되돌리기:</strong> 이전 작업 취소</p>
+                <p><strong>포인터 모드:</strong> 클릭으로 객체 선택, 드래그로 다중 선택 및 이동</p>
+                <p><strong>브리지 모드:</strong> 객체들을 연결하여 빈 공간 채우기</p>
+                <p><strong>펜 패널:</strong> 다양한 펜 종류 선택 가능</p>
+                <p><strong>맵 패널:</strong> 다양한 지형 추가 가능</p>
+                <p><strong>도형 그리기:</strong> 드래그하여 원하는 크기로 도형 생성</p>
+                <p><strong>페인트 채우기:</strong> 넓은 영역을 한 번에 색상으로 채움</p>
+                <p>위치: <span id="positionValue">Y: 0.0</span></p>
+            </div>
+            
+            <div id="status"></div>
+            <div id="drawing-info" class="drawing-info"></div>
+            <div id="size-display" class="size-display" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- 오디오 패널 -->
+    <div id="audio-panel">
+        <h3>오디오 시각화</h3>
+        
+        <div class="audio-input-group">
+            <label for="audioFile">오디오 파일:</label>
+            <input type="file" id="audioFile" accept="audio/*">
+        </div>
+        
+        <div class="audio-input-group">
+            <label for="audioType">시각화 유형:</label>
+            <select id="audioType">
+                <option value="wave">파형</option>
+                <option value="frequency">주파수 스펙트럼</option>
+                <option value="circle">원형 시각화</option>
+                <option value="sphere">구체 시각화</option>
+                <option value="particles">입자 시스템</option>
+            </select>
+        </div>
+        
+        <div class="audio-input-group">
+            <label for="audioSensitivity">민감도:</label>
+            <input type="range" id="audioSensitivity" min="1" max="100" value="50">
+            <span id="audioSensitivityValue">50</span>
+        </div>
+        
+        <div class="audio-input-group">
+            <label for="audioScale">크기:</label>
+            <input type="range" id="audioScale" min="1" max="10" value="3">
+            <span id="audioScaleValue">3</span>
+        </div>
+        
+        <div class="audio-input-group">
+            <label for="audioColor">색상 모드:</label>
+            <select id="audioColor">
+                <option value="spectrum">스펙트럼</option>
+                <option value="mono">단색</option>
+                <option value="rainbow">레인보우</option>
+            </select>
+        </div>
+        
+        <div class="audio-input-group">
+            <button id="micToggle" onclick="toggleMicrophone()">🎤 마이크 켜기</button>
+            <button id="playPause" onclick="toggleAudioPlayback()" disabled>▶️ 재생</button>
+        </div>
+        
+        <div class="audio-buttons">
+            <button class="btn-add-audio" onclick="addAudioVisualization()">시각화 추가</button>
+            <button class="btn-cancel-audio" onclick="toggleAudioPanel()">취소</button>
+        </div>
+    </div>
+
+    <!-- 회전 패널 -->
+    <div id="rotate-panel">
+        <h3>회전 컨트롤</h3>
+        
+        <div class="rotate-input-group">
+            <label for="rotateAxis">회전 축:</label>
+            <select id="rotateAxis">
+                <option value="x">X축</option>
+                <option value="y">Y축</option>
+                <option value="z">Z축</option>
+                <option value="free">자유 회전</option>
+            </select>
+        </div>
+        
+        <div class="rotate-input-group">
+            <label for="rotateSpeed">회전 속도:</label>
+            <input type="range" id="rotateSpeed" min="0" max="100" value="10">
+            <span id="rotateSpeedValue">10</span>
+        </div>
+        
+        <div class="rotate-input-group">
+            <label for="rotateAngle">각도 설정:</label>
+            <input type="number" id="rotateAngle" min="0" max="360" value="45" step="1">
+            <span>도</span>
+        </div>
+        
+        <div class="rotate-buttons">
+            <button class="btn-rotate-start" onclick="startRotation()">▶️ 회전 시작</button>
+            <button class="btn-rotate-stop" onclick="stopRotation()">⏹️ 회전 정지</button>
+            <button class="btn-rotate-reset" onclick="resetRotation()">↺ 초기화</button>
+        </div>
+        
+        <div class="rotate-input-group">
+            <label for="autoRotate">자동 회전:</label>
+            <input type="checkbox" id="autoRotate">
+        </div>
+        
+        <div class="rotate-input-group">
+            <label>수동 회전:</label>
+            <div class="manual-rotate-buttons">
+                <button onclick="rotateSelectedObject('x', 15)">↻ X+</button>
+                <button onclick="rotateSelectedObject('x', -15)">↺ X-</button>
+                <button onclick="rotateSelectedObject('y', 15)">↻ Y+</button>
+                <button onclick="rotateSelectedObject('y', -15)">↺ Y-</button>
+                <button onclick="rotateSelectedObject('z', 15)">↻ Z+</button>
+                <button onclick="rotateSelectedObject('z', -15)">↺ Z-</button>
+            </div>
+        </div>
+        
+        <div class="rotate-input-group">
+            <button class="btn-close-rotate" onclick="toggleRotatePanel()">닫기</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
