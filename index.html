@@ -41,6 +41,22 @@
                     <span class="menu-icon">🖼️</span>
                     <span>이미지</span>
                 </button>
+                <button class="menu-btn" onclick="toggleVideoPanel()">
+                    <span class="menu-icon">🎬</span>
+                    <span>동영상</span>
+                </button>
+                <button class="menu-btn" id="mouseBtn" onclick="toggleMousePanel()">
+                    <span class="menu-icon">🐭</span>
+                    <span>MOUSE</span>
+                </button>
+                <button class="menu-btn" onclick="toggleBgPanel()">
+                    <span class="menu-icon">🌄</span>
+                    <span>배경</span>
+                </button>
+                <button class="menu-btn" onclick="toggleMathPanel()">
+                    <span class="menu-icon">∑</span>
+                    <span>Math</span>
+                </button>
                 <button class="menu-btn" id="shapeDrawBtn" onclick="toggleShapeDrawingMode()">
                     <span class="menu-icon">📐</span>
                     <span>도형 그리기</span>
@@ -60,6 +76,22 @@
                 <button class="menu-btn" onclick="toggleRotatePanel()">
                     <span class="menu-icon">🔄</span>
                     <span>회전</span>
+                </button>
+                <button class="menu-btn" onclick="toggleAnimationPanel()">
+                    <span class="menu-icon">🎬</span>
+                    <span>애니메이션</span>
+                </button>
+                <button class="menu-btn" id="polygonBtn" onclick="togglePolygonPanel()">
+                    <span class="menu-icon">🔷</span>
+                    <span>폴리곤</span>
+                </button>
+                <button class="menu-btn" id="sculptBtn" onclick="toggleSculptPanel()">
+                    <span class="menu-icon">🗿</span>
+                    <span>스컬프팅</span>
+                </button>
+                <button class="menu-btn" id="detailBtn" onclick="toggleDetailPanel()">
+                    <span class="menu-icon">🕸️</span>
+                    <span>세부 조각</span>
                 </button>
             </div>
             
@@ -82,6 +114,10 @@
                 <button class="menu-btn" id="undoBtn" onclick="undo()" disabled>
                     <span class="menu-icon">↶</span>
                     <span>되돌리기</span>
+                </button>
+                <button class="menu-btn" onclick="duplicateSelectedObjects()">
+                    <span class="menu-icon">👯</span>
+                    <span>복제</span>
                 </button>
                 <button class="menu-btn" onclick="resetCamera()">
                     <span class="menu-icon">🔄</span>
@@ -761,6 +797,276 @@
         
         <div class="rotate-input-group">
             <button class="btn-close-rotate" onclick="toggleRotatePanel()">닫기</button>
+        </div>
+    </div>
+        <div id="animation-panel">
+        <h3>애니메이션 제작</h3>
+        
+        <div class="anim-status">
+            프레임 수: <span id="frameCount">0</span>
+        </div>
+
+        <div class="anim-controls">
+            <button class="btn-anim-capture" onclick="captureKeyframe()">📸 프레임 캡처</button>
+            <div class="anim-sub-controls">
+                <button class="btn-anim-play" id="btnAnimPlay" onclick="toggleAnimation()">▶️ 재생</button>
+                <button class="btn-anim-stop" onclick="stopAnimation()">⏹️ 정지</button>
+            </div>
+            <button class="btn-anim-clear" onclick="clearAnimation()">🗑️ 프레임 초기화</button>
+        </div>
+        
+        <div class="anim-input-group">
+            <label for="animSpeed">재생 속도:</label>
+            <input type="range" id="animSpeed" min="1" max="100" value="50">
+        </div>
+        
+        <div class="anim-input-group">
+            <label for="animLoop">반복 재생:</label>
+            <input type="checkbox" id="animLoop" checked>
+        </div>
+
+        <div class="anim-help">
+            <small>1. 객체들을 이동/회전 시키세요.<br>2. '프레임 캡처'를 누르세요.<br>3. 반복 후 '재생'을 누르세요.</small>
+        </div>
+        
+        <div class="anim-input-group">
+            <button class="btn-close-anim" onclick="toggleAnimationPanel()">닫기</button>
+        </div>
+    </div>
+
+    <div id="polygon-panel">
+        <h3>폴리곤 모델링</h3>
+        
+        <div class="input-group" style="margin-bottom: 10px;">
+            <label for="polyDepth" style="display:block; color:#d1d5db; margin-bottom:5px;">돌출 두께 (Extrude):</label>
+            <input type="range" id="polyDepth" min="0.1" max="5" step="0.1" value="1" style="width:100%;">
+            <span id="polyDepthValue" style="color:white; float:right;">1</span>
+        </div>
+
+        <div class="input-group" style="margin-bottom: 10px;">
+            <label style="display:block; color:#d1d5db; margin-bottom:5px;">옵션:</label>
+            <label style="color:white; font-size:13px;">
+                <input type="checkbox" id="polyBevel" checked> 베벨(모서리 다듬기) 적용
+            </label>
+        </div>
+
+        <div style="display: flex; gap: 8px; flex-direction: column;">
+            <button onclick="finishPolygon()" style="background: #3b82f6; color: white; padding: 10px; border-radius: 6px; border: none; cursor: pointer;">✅ 완료 (형체 생성)</button>
+            <button onclick="resetPolygonVertices()" style="background: #ef4444; color: white; padding: 8px; border-radius: 6px; border: none; cursor: pointer;">🗑️ 점 초기화</button>
+            <button onclick="togglePolygonPanel()" style="background: #4b5563; color: white; padding: 8px; border-radius: 6px; border: none; cursor: pointer;">닫기</button>
+        </div>
+        
+        <div style="margin-top:10px; font-size:12px; color:#9ca3af; background:rgba(0,0,0,0.2); padding:8px; border-radius:4px;">
+            1. 화면을 클릭하여 점을 찍으세요.<br>
+            2. 시작점을 다시 클릭하거나 '완료'를 누르면 입체가 생성됩니다.
+        </div>
+    </div>
+
+    <div id="sculpt-panel">
+        <h3>스컬프팅 도구</h3>
+        
+        <div class="input-group" style="margin-bottom: 10px;">
+            <label style="display:block; color:#d1d5db; margin-bottom:5px;">모드:</label>
+            <div style="display:flex; gap:5px;">
+                <button class="sculpt-mode-btn active" onclick="setSculptMode('pull', this)">융기 (Pull)</button>
+                <button class="sculpt-mode-btn" onclick="setSculptMode('push', this)">침식 (Push)</button>
+            </div>
+        </div>
+
+        <div class="input-group" style="margin-bottom: 10px;">
+            <label for="sculptRadius" style="display:block; color:#d1d5db; margin-bottom:5px;">브러시 크기:</label>
+            <input type="range" id="sculptRadius" min="0.1" max="3" step="0.1" value="0.5" style="width:100%;">
+        </div>
+
+        <div class="input-group" style="margin-bottom: 10px;">
+            <label for="sculptIntensity" style="display:block; color:#d1d5db; margin-bottom:5px;">강도 (세기):</label>
+            <input type="range" id="sculptIntensity" min="0.1" max="2" step="0.1" value="0.5" style="width:100%;">
+        </div>
+
+        <div style="display: flex; gap: 8px; flex-direction: column;">
+            <button onclick="toggleSculptPanel()" style="background: #4b5563; color: white; padding: 8px; border-radius: 6px; border: none; cursor: pointer;">닫기</button>
+        </div>
+        
+        <div style="margin-top:10px; font-size:12px; color:#9ca3af; background:rgba(0,0,0,0.2); padding:8px; border-radius:4px;">
+            객체 위를 드래그하여 표면을 변형하세요.<br>
+            (세그먼트가 많은 객체일수록 부드럽게 변형됩니다.)
+        </div>
+    </div>
+
+    <div id="detail-panel">
+        <h3>세부 조각 (Vertex Edit)</h3>
+        
+        <div style="margin-bottom: 10px; font-size: 13px; color: #d1d5db;">
+            <p>선택된 객체의 점(Vertex)을<br>드래그하여 수정합니다.</p>
+        </div>
+
+        <div class="input-group" style="margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #4b5563;">
+            <label style="display:block; color:#d1d5db; margin-bottom:5px;">평면 편집이 안될 때:</label>
+            <button onclick="subdivideTargetMesh()" style="width: 100%; background: #8b5cf6; color: white; padding: 8px; border-radius: 6px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                <span>⊞</span> 면 분할 (점 추가)
+            </button>
+            <p style="font-size: 11px; color: #9ca3af; margin-top: 5px;">* 평면 가운데에 점을 생성합니다.</p>
+        </div>
+        <div class="input-group" style="margin-bottom: 10px;">
+            <label style="display:block; color:#d1d5db; margin-bottom:5px;">가이드 옵션:</label>
+            <label style="color:white; font-size:13px; display:block; margin-bottom:4px;">
+                <input type="checkbox" id="showWireframe" checked onchange="updateDetailVisuals()"> 격자(선) 보기
+            </label>
+            <label style="color:white; font-size:13px;">
+                <input type="checkbox" id="showPoints" checked onchange="updateDetailVisuals()"> 점(Vertex) 보기
+            </label>
+        </div>
+
+        <div style="display: flex; gap: 8px; flex-direction: column;">
+            <button onclick="toggleDetailPanel()" style="background: #3b82f6; color: white; padding: 10px; border-radius: 6px; border: none; cursor: pointer;">✅ 편집 완료</button>
+        </div>
+    </div>
+
+    <div id="video-panel">
+        <h3>동영상 추가</h3>
+        
+        <div class="input-group" style="margin-bottom: 10px;">
+            <label for="videoFile" style="display:block; color:#d1d5db; margin-bottom:5px;">파일 선택 (mp4, webm):</label>
+            <input type="file" id="videoFile" accept="video/*" style="width:100%; color: white;">
+        </div>
+        
+        <div class="input-group" style="margin-bottom: 10px;">
+            <label style="display:block; color:#d1d5db; margin-bottom:5px;">또는 URL 입력:</label>
+            <input type="text" id="videoUrl" placeholder="https://..." style="width:100%; padding:8px; border-radius:6px; border:1px solid #4b5563; background:#374151; color:white;">
+        </div>
+
+        <div class="input-group" style="margin-bottom: 10px;">
+            <label for="videoWidth" style="display:block; color:#d1d5db; margin-bottom:5px;">너비:</label>
+            <input type="range" id="videoWidth" min="1" max="10" step="0.5" value="4" style="width:100%;">
+        </div>
+
+        <div class="input-group" style="margin-bottom: 10px;">
+            <label for="videoHeight" style="display:block; color:#d1d5db; margin-bottom:5px;">높이:</label>
+            <input type="range" id="videoHeight" min="1" max="10" step="0.5" value="2.5" style="width:100%;">
+        </div>
+
+        <div style="display: flex; gap: 8px; flex-direction: column;">
+            <button onclick="addVideo()" style="background: #ef4444; color: white; padding: 10px; border-radius: 6px; border: none; cursor: pointer;">📺 동영상 생성</button>
+            <button onclick="toggleVideoPanel()" style="background: #4b5563; color: white; padding: 8px; border-radius: 6px; border: none; cursor: pointer;">닫기</button>
+        </div>
+        
+        <div style="margin-top:10px; font-size:12px; color:#9ca3af; background:rgba(0,0,0,0.2); padding:8px; border-radius:4px;">
+            * 브라우저 정책상 소리는 기본적으로 '음소거' 상태로 재생됩니다.<br>
+            * 생성된 화면을 클릭하면 일시정지/재생 할 수 있습니다.
+        </div>
+    </div>
+
+    <div id="mouse-panel">
+        <h3>MOUSE 시뮬레이션</h3>
+        
+        <div style="margin-bottom: 10px; font-size: 13px; color: #d1d5db;">
+            <p>그려진 벽 안에 쥐를 풀어보세요.<br>치즈는 쥐를 유인하고, 덫은 쥐를 잡습니다.</p>
+        </div>
+
+        <div class="input-group" style="margin-bottom: 10px;">
+            <label style="display:block; color:#d1d5db; margin-bottom:5px;">배치 도구:</label>
+            <div style="display:flex; gap:5px;">
+                <button class="mouse-tool-btn" onclick="setMouseTool('mouse', this)">🐭 쥐 (Mouse)</button>
+                <button class="mouse-tool-btn" onclick="setMouseTool('cheese', this)">🧀 치즈 (Cheese)</button>
+                <button class="mouse-tool-btn" onclick="setMouseTool('trap', this)">🪤 덫 (Trap)</button>
+            </div>
+        </div>
+
+        <div class="input-group" style="margin-bottom: 10px;">
+            <label for="mouseSpeed" style="display:block; color:#d1d5db; margin-bottom:5px;">쥐 이동 속도:</label>
+            <input type="range" id="mouseSpeed" min="1" max="10" value="3" style="width:100%;">
+        </div>
+
+        <div style="display: flex; gap: 8px; flex-direction: column;">
+            <button onclick="clearMouseItems()" style="background: #ef4444; color: white; padding: 10px; border-radius: 6px; border: none; cursor: pointer;">🗑️ 시뮬레이션 초기화</button>
+            <button onclick="toggleMousePanel()" style="background: #4b5563; color: white; padding: 8px; border-radius: 6px; border: none; cursor: pointer;">닫기</button>
+        </div>
+        
+        <div style="margin-top:10px; font-size:12px; color:#9ca3af; background:rgba(0,0,0,0.2); padding:8px; border-radius:4px;">
+            * 쥐는 벽을 감지하여 피합니다.<br>
+            * 치즈가 가까이 있으면 달려갑니다.<br>
+            * 덫에 닿으면 멈춥니다.
+        </div>
+    </div>
+
+    <div id="bg-panel">
+        <h3>배경 설정</h3>
+        
+        <div style="margin-bottom: 10px; font-size: 13px; color: #d1d5db;">
+            <p>3D 공간의 배경을 변경합니다.<br>이미지나 카메라 화면을 사용할 수 있습니다.</p>
+        </div>
+
+        <div class="input-group" style="margin-bottom: 15px;">
+            <label style="display:block; color:#d1d5db; margin-bottom:5px;">이미지 업로드:</label>
+            <input type="file" id="bgImageFile" accept="image/*" onchange="handleBackgroundImage(event)" style="width:100%; color: white;">
+        </div>
+
+        <div class="input-group" style="margin-bottom: 15px;">
+            <label style="display:block; color:#d1d5db; margin-bottom:5px;">카메라 (AR 모드):</label>
+            <button onclick="toggleCameraBackground()" id="btnBgCamera" style="width: 100%; background: #059669; color: white; padding: 10px; border-radius: 6px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                <span>📷</span> 카메라 켜기
+            </button>
+        </div>
+
+        <div style="display: flex; gap: 8px; flex-direction: column;">
+            <button onclick="resetBackground()" style="background: #4b5563; color: white; padding: 8px; border-radius: 6px; border: none; cursor: pointer;">↺ 기본 배경(초기화)</button>
+            <button onclick="toggleBgPanel()" style="background: #374151; color: white; padding: 8px; border-radius: 6px; border: none; cursor: pointer;">닫기</button>
+        </div>
+    </div>
+
+    <div id="math-panel">
+        <h3>수학 시각화</h3>
+        
+        <div style="margin-bottom: 10px; font-size: 13px; color: #d1d5db;">
+            <p>함수식 y = f(x, z)를 입력하여<br>3D 그래프를 생성합니다.</p>
+        </div>
+
+        <div class="input-group" style="margin-bottom: 10px;">
+            <label style="display:block; color:#d1d5db; margin-bottom:5px;">예제 그래프 선택:</label>
+            <select id="mathExamples" onchange="selectMathExample()" style="width:100%; padding:8px; border-radius:6px; border:1px solid #4b5563; background:#374151; color:white; cursor:pointer;">
+                <option value="">-- 선택하세요 --</option>
+                <option value="sin(x) * cos(z)">1. 기본 파동 (Wave)</option>
+                <option value="sin(sqrt(x*x + z*z))">2. 물방울 파동 (Ripple)</option>
+                <option value="(x*x - z*z) / 5">3. 말안장 (Saddle)</option>
+                <option value="sin(x) + cos(z)">4. 둥근 언덕 (Hills)</option>
+                <option value="5 - max(abs(x), abs(z))">5. 피라미드 (Pyramid)</option>
+                <option value="sin(x) * sin(z)">6. 계란판 (Egg Crate)</option>
+                <option value="floor(x) + floor(z)">7. 계단 (Steps)</option>
+                <option value="exp(-(x*x + z*z)/10) * 5">8. 가우시안 산 (Mountain)</option>
+                <option value="sin(x*z/2)">9. 간섭 무늬 (Interference)</option>
+                <option value="abs(sin(x) * cos(z)) * 2">10. 엠보싱 (Embossing)</option>
+            </select>
+        </div>
+
+        <div class="input-group" style="margin-bottom: 15px;">
+            <label style="display:block; color:#d1d5db; margin-bottom:5px;">수식 입력 (Javascript Math):</label>
+            <div style="display:flex; align-items:center; gap:5px; background:#374151; padding:5px; border-radius:6px; border:1px solid #4b5563;">
+                <span style="color:#60a5fa; font-weight:bold;">y = </span>
+                <input type="text" id="mathFormula" value="sin(x) * cos(z)" placeholder="예: sin(x) + cos(z)" style="flex:1; background:transparent; border:none; color:white; outline:none;">
+            </div>
+            <p style="font-size: 11px; color: #9ca3af; margin-top: 5px;">* 사용 가능: sin, cos, tan, sqrt, pow, abs, PI 등</p>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">
+            <div class="input-group">
+                <label style="color:#d1d5db; font-size:12px;">범위 (Grid):</label>
+                <input type="number" id="mathRange" value="10" style="width:100%; padding:5px; border-radius:4px; border:1px solid #4b5563; background:#374151; color:white;">
+            </div>
+            <div class="input-group">
+                <label style="color:#d1d5db; font-size:12px;">정밀도 (Seg):</label>
+                <input type="number" id="mathSegments" value="60" min="10" max="200" style="width:100%; padding:5px; border-radius:4px; border:1px solid #4b5563; background:#374151; color:white;">
+            </div>
+        </div>
+        
+        <div class="input-group" style="margin-bottom: 15px;">
+            <label style="color:white; font-size:13px;">
+                <input type="checkbox" id="mathWireframe" checked> 와이어프레임 보기
+            </label>
+        </div>
+
+        <div style="display: flex; gap: 8px; flex-direction: column;">
+            <button onclick="generateMathSurface()" style="background: #8b5cf6; color: white; padding: 10px; border-radius: 6px; border: none; cursor: pointer;">📈 그래프 생성</button>
+            <button onclick="toggleMathPanel()" style="background: #4b5563; color: white; padding: 8px; border-radius: 6px; border: none; cursor: pointer;">닫기</button>
         </div>
     </div>
 

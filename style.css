@@ -1017,7 +1017,7 @@ button {
 /* 회전 패널 스타일 */
 #rotate-panel {
     position: absolute;
-    top: 100px;
+    top: 160px;
     right: 24px;
     background: rgba(31, 41, 55, 0.95);
     padding: 16px;
@@ -1185,4 +1185,320 @@ button {
     to {
         stroke-dashoffset: -10;
     }
+}
+
+/* [style.css] 파일 맨 끝에 추가하세요 */
+
+/* 애니메이션 패널 스타일 */
+#animation-panel {
+    position: absolute;
+    top: 100px;
+    right: 24px;
+    background: rgba(31, 41, 55, 0.95);
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 280px;
+}
+
+#animation-panel h3 {
+    color: #f59e0b; /* 주황색 계열 */
+    margin-bottom: 8px;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.anim-status {
+    background: #374151;
+    padding: 8px;
+    border-radius: 6px;
+    text-align: center;
+    font-weight: bold;
+    color: #60a5fa;
+}
+
+.anim-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.anim-sub-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.anim-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.anim-input-group label {
+    font-size: 12px;
+    color: #d1d5db;
+}
+
+.anim-help {
+    background: rgba(0,0,0,0.2);
+    padding: 8px;
+    border-radius: 4px;
+    color: #9ca3af;
+    line-height: 1.4;
+}
+
+.btn-anim-capture { background: #3b82f6; color: white; padding: 10px; border-radius: 6px; border: none; cursor: pointer; }
+.btn-anim-capture:hover { background: #2563eb; }
+
+.btn-anim-play { background: #10b981; color: white; flex: 1; padding: 8px; border-radius: 6px; border: none; cursor: pointer; }
+.btn-anim-play:hover { background: #059669; }
+
+.btn-anim-stop { background: #ef4444; color: white; flex: 1; padding: 8px; border-radius: 6px; border: none; cursor: pointer; }
+.btn-anim-stop:hover { background: #dc2626; }
+
+.btn-anim-clear { background: #6b7280; color: white; padding: 6px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; }
+.btn-anim-clear:hover { background: #4b5563; }
+
+.btn-close-anim { background: #4b5563; color: white; padding: 8px; border-radius: 6px; border: none; cursor: pointer; }
+.btn-close-anim:hover { background: #374151; }
+
+/* 재생 중일 때 깜빡임 효과 */
+.anim-playing {
+    border: 2px solid #10b981;
+    animation: glow 1.5s infinite alternate;
+}
+
+@keyframes glow {
+    from { box-shadow: 0 0 5px #10b981; }
+    to { box-shadow: 0 0 20px #10b981; }
+}
+
+/* 폴리곤 패널 스타일 */
+#polygon-panel {
+    position: absolute;
+    top: 100px;
+    left: 24px; /* 왼쪽에 배치 */
+    background: rgba(31, 41, 55, 0.95);
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    min-width: 250px;
+}
+
+#polygon-panel h3 {
+    color: #a78bfa; /* 보라색 계열 */
+    margin-bottom: 12px;
+    font-size: 16px;
+    border-bottom: 1px solid #4b5563;
+    padding-bottom: 8px;
+}
+
+/* 폴리곤 모드일 때 커서 */
+#canvas.polygon-mode {
+    cursor: crosshair;
+}
+
+/* 스컬프팅 패널 스타일 */
+#sculpt-panel {
+    position: absolute;
+    top: 100px;
+    left: 24px;
+    background: rgba(31, 41, 55, 0.95);
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    min-width: 250px;
+}
+
+#sculpt-panel h3 {
+    color: #fca5a5; /* 연한 빨강 */
+    margin-bottom: 12px;
+    font-size: 16px;
+    border-bottom: 1px solid #4b5563;
+    padding-bottom: 8px;
+}
+
+.sculpt-mode-btn {
+    flex: 1;
+    background: #374151;
+    color: #d1d5db;
+    border: 1px solid #4b5563;
+    padding: 6px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.sculpt-mode-btn.active {
+    background: #ef4444;
+    color: white;
+    border-color: #ef4444;
+}
+
+/* 스컬프팅 모드일 때 커서 */
+#canvas.sculpt-mode {
+    cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="red" stroke-width="2"/></svg>') 12 12, auto;
+}
+
+/* 세부 조각 패널 스타일 */
+#detail-panel {
+    position: absolute;
+    top: 100px;
+    left: 24px;
+    background: rgba(31, 41, 55, 0.95);
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    min-width: 220px;
+}
+
+#detail-panel h3 {
+    color: #34d399; /* 민트색 */
+    margin-bottom: 12px;
+    font-size: 16px;
+    border-bottom: 1px solid #4b5563;
+    padding-bottom: 8px;
+}
+
+/* 세부 조각 모드 커서 */
+#canvas.detail-mode {
+    cursor: default;
+}
+
+#canvas.detail-mode:active {
+    cursor: grabbing;
+}
+
+/* 동영상 패널 스타일 */
+#video-panel {
+    position: absolute;
+    top: 100px;
+    right: 24px; /* 오른쪽에 배치 (이미지 패널 등과 같은 라인) */
+    background: rgba(31, 41, 55, 0.95);
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    min-width: 280px;
+}
+
+#video-panel h3 {
+    color: #ef4444; /* 빨간색 (유튜브 느낌) */
+    margin-bottom: 12px;
+    font-size: 16px;
+    border-bottom: 1px solid #4b5563;
+    padding-bottom: 8px;
+}
+
+
+/* MOUSE 패널 스타일 */
+#mouse-panel {
+    position: absolute;
+    top: 100px;
+    left: 24px;
+    background: rgba(31, 41, 55, 0.95);
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    min-width: 250px;
+}
+
+#mouse-panel h3 {
+    color: #fbbf24; /* 치즈색 (노란색 계열) */
+    margin-bottom: 12px;
+    font-size: 16px;
+    border-bottom: 1px solid #4b5563;
+    padding-bottom: 8px;
+}
+
+.mouse-tool-btn {
+    flex: 1;
+    background: #374151;
+    color: #d1d5db;
+    border: 1px solid #4b5563;
+    padding: 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.mouse-tool-btn.active {
+    background: #fbbf24;
+    color: #1f2937; /* 글자 검정색 */
+    border-color: #fbbf24;
+    font-weight: bold;
+}
+
+/* 마우스 모드 커서 */
+#canvas.mouse-mode {
+    cursor: cell; /* 십자+네모 커서 */
+}
+
+/* 배경 패널 스타일 */
+#bg-panel {
+    position: absolute;
+    top: 100px;
+    right: 24px;
+    background: rgba(31, 41, 55, 0.95);
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    min-width: 250px;
+}
+
+#bg-panel h3 {
+    color: #6ee7b7; /* 민트색 계열 */
+    margin-bottom: 12px;
+    font-size: 16px;
+    border-bottom: 1px solid #4b5563;
+    padding-bottom: 8px;
+}
+
+#btnBgCamera.active {
+    background: #ef4444 !important; /* 끄기 상태일 때 빨간색 */
+}
+
+/* Math 패널 스타일 */
+#math-panel {
+    position: absolute;
+    top: 100px;
+    right: 24px;
+    background: rgba(31, 41, 55, 0.95);
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    min-width: 260px;
+}
+
+#math-panel h3 {
+    color: #a78bfa; /* 보라색 계열 */
+    margin-bottom: 12px;
+    font-size: 16px;
+    border-bottom: 1px solid #4b5563;
+    padding-bottom: 8px;
 }

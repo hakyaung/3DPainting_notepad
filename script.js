@@ -93,6 +93,55 @@ let audioColorMode = 'spectrum';
 let microphoneStream = null;
 let audioFile = null;
 
+// 회전 제어 관련 변수
+let isObjectRotating = false;
+let rotationAxis = 'y';
+
+// --- 애니메이션 관련 변수 ---
+let animationFrames = [];   // 캡처된 프레임 저장
+let isAnimPlaying = false;  // 재생 중 여부
+let currentFrameIdx = 0;    // 현재 재생 중인 프레임 인덱스
+let animProgress = 0;       // 프레임 간 전환 진행도 (0.0 ~ 1.0)
+let animStartTime = 0;      // 애니메이션 시작 시간
+
+// --- 폴리곤 모델링 관련 변수 ---
+let isPolygonMode = false;
+let polygonPoints = [];       // 찍은 점들의 3D 좌표 저장
+let polygonMarkers = [];      // 점을 표시하는 구체 메쉬들
+let polygonLines = [];        // 점들을 잇는 선 메쉬들
+let polygonGuideLine = null;  // 마우스를 따라다니는 가이드 선
+
+// --- 스컬프팅 관련 변수 ---
+let isSculptMode = false;
+let isSculptingAction = false; // 실제 마우스로 변형 중인지 여부
+let sculptTool = 'pull';       // 'pull' or 'push'
+let sculptBrushMesh = null;    // 마우스 따라다니는 브러시 가이드
+
+// --- 세부 조각(Detail Sculpting) 관련 변수 ---
+let isDetailMode = false;
+let detailTargetMesh = null;      // 현재 편집 중인 메쉬
+let detailHelperGroup = null;     // 점(Points)과 선(Wireframe)을 담을 그룹
+let selectedDetailVertex = null;  // 현재 드래그 중인 점(Helper Sphere)
+let detailVertexIndex = -1;       // 현재 드래그 중인 점의 원본 Vertex 인덱스
+
+// --- 동영상 관련 변수 ---
+let videoIdCounter = 0;
+let videoElements = []; // 생성된 video HTML 엘리먼트들을 관리
+
+// --- MOUSE 시뮬레이션 관련 변수 ---
+let isMouseMode = false;
+let currentMouseTool = null; // 'mouse', 'cheese', 'trap'
+let mouseAgents = []; // 활동 중인 쥐 객체 배열
+let cheeseItems = []; // 배치된 치즈 객체 배열
+let trapItems = [];   // 배치된 덫 객체 배열
+
+// --- 배경 설정 관련 변수 ---
+let bgCameraStream = null; // 카메라 스트림 저장
+let bgVideoElement = null; // 카메라 영상용 비디오 태그
+
+// --- Math 기능 관련 변수 ---
+let mathMeshCounter = 0;
+
 // 애플리케이션 초기화
 function init() {
     const canvas = document.getElementById('canvas');
@@ -441,6 +490,12 @@ function cloneObject(obj) {
         group.rotation.copy(obj.rotation);
         group.scale.copy(obj.scale);
         
+        // userData 깊은 복사 (오디오 시각화 데이터 등 보존)
+        group.userData = JSON.parse(JSON.stringify(obj.userData));
+        
+        // originalMaterial은 복사하지 않음 (새 객체는 선택되지 않은 상태여야 하므로)
+        delete group.userData.originalMaterial;
+        
         obj.children.forEach(child => {
             const clonedChild = cloneObject(child);
             if (clonedChild) {
@@ -457,12 +512,15 @@ function cloneObject(obj) {
             geometry = obj.geometry.clone();
         }
         
-        // 머티리얼 복제
-        if (obj.material) {
-            if (Array.isArray(obj.material)) {
-                material = obj.material.map(mat => mat.clone());
+        // 머티리얼 복제 (수정된 핵심 부분!)
+        // 선택된 상태(파란색)라면, 현재 material이 아닌 저장된 originalMaterial을 복제해야 함
+        const sourceMaterial = obj.userData.originalMaterial || obj.material;
+
+        if (sourceMaterial) {
+            if (Array.isArray(sourceMaterial)) {
+                material = sourceMaterial.map(mat => mat.clone());
             } else {
-                material = obj.material.clone();
+                material = sourceMaterial.clone();
             }
         }
         
@@ -472,16 +530,27 @@ function cloneObject(obj) {
         mesh.rotation.copy(obj.rotation);
         mesh.scale.copy(obj.scale);
         
+        // userData 복사 하되 originalMaterial은 제외
+        mesh.userData = JSON.parse(JSON.stringify(obj.userData));
+        delete mesh.userData.originalMaterial;
+        
         return mesh;
     } else if (obj.isLine) {
         const geometry = obj.geometry.clone();
-        const material = obj.material.clone();
+        
+        // 라인 머티리얼 복제 (수정된 부분)
+        const sourceMaterial = obj.userData.originalMaterial || obj.material;
+        const material = sourceMaterial.clone();
         
         const line = new THREE.Line(geometry, material);
         line.name = obj.name;
         line.position.copy(obj.position);
         line.rotation.copy(obj.rotation);
         line.scale.copy(obj.scale);
+        
+        // userData 복사
+        line.userData = JSON.parse(JSON.stringify(obj.userData));
+        delete line.userData.originalMaterial;
         
         return line;
     }
@@ -620,6 +689,27 @@ function animate() {
     // 오디오 시각화 업데이트
     if (audioVisualizations.length > 0 && (isMicrophoneActive || isAudioPlaying)) {
         updateAudioVisualizations();
+    }
+
+    // 선택된 객체 자동 회전 처리
+    if (isObjectRotating && selectedObject) {
+        const speedVal = document.getElementById('rotateSpeed').value;
+        const speed = parseFloat(speedVal) * 0.005; // 속도 배율 조정
+        const axis = document.getElementById('rotateAxis').value;
+        
+        if (axis === 'x' || axis === 'free') selectedObject.rotation.x += speed;
+        if (axis === 'y' || axis === 'free') selectedObject.rotation.y += speed;
+        if (axis === 'z' || axis === 'free') selectedObject.rotation.z += speed;
+    }
+
+    // ---  애니메이션 재생 로직 ---
+    if (isAnimPlaying && animationFrames.length > 1) {
+        updateAnimation();
+    }
+
+    // ---  MOUSE 시뮬레이션 업데이트 ---
+    if (mouseAgents.length > 0) {
+        updateMouseSimulation();
     }
     
     renderer.render(scene, camera);
@@ -769,6 +859,63 @@ function onMouseDown(event) {
         createPaintFill(event);
         return;
     }
+
+    // --- 폴리곤 모드 로직 ---
+    if (isPolygonMode && event.button === 0) {
+        handlePolygonClick(event);
+        return;
+    }
+
+    // --- 스컬프팅 시작 ---
+    if (isSculptMode && event.button === 0) {
+        isSculptingAction = true;
+        sculptMesh(event); // 클릭 즉시 1회 적용
+        saveState(); // 시작 전 상태 저장 (혹은 끝나고 저장하도록 로직 변경 가능)
+        return;
+    }
+
+    // --- 세부 조각(Detail) 모드 로직 ---
+    if (isDetailMode && event.button === 0) {
+        handleDetailVertexClick(event);
+        // 점을 클릭하지 않았더라도 화면 회전 등을 위해 return 하지 않고 흘려보낼 수도 있음.
+        // 하지만 점을 클릭했다면 드래그 시작이므로 return
+        if (selectedDetailVertex) return; 
+    }
+
+    // --- 동영상 재생/일시정지 제어 ---
+    // 포인터 모드나 다른 도구 모드가 아닐 때 (또는 포인터 모드에서도 가능하게 하려면 조건 조정)
+    if (!isShapeDrawingMode && !isPaintMode && !isBridgeMode && !isEraserMode && !isPolygonMode && !isSculptMode && !isDetailMode) {
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(drawingGroup.children);
+        
+        if (intersects.length > 0) {
+            const object = intersects[0].object;
+            // 비디오 객체인지 확인 (userData에 저장된 비디오 엘리먼트가 있는지)
+            if (object.userData && object.userData.videoElement) {
+                const vid = object.userData.videoElement;
+                if (vid.paused) {
+                    vid.play();
+                    showStatus('동영상 재생 ▶️');
+                } else {
+                    vid.pause();
+                    showStatus('동영상 일시정지 ⏸️');
+                }
+                // 클릭 이벤트가 다른 로직(드래그 등)으로 넘어가지 않게 하려면 return
+                // 하지만 이동도 해야한다면 return 하지 않음.
+                // 여기서는 재생 컨트롤만 하고 이동 로직으로 넘어가도록 둠.
+            }
+        }
+    }
+
+    // --- MOUSE 아이템 배치 로직 ---
+    if (isMouseMode && event.button === 0) {
+        spawnMouseItem(event);
+        return;
+    }
     
     // 도형 그리기 모드
     if (isShapeDrawingMode && event.button === 0) {
@@ -843,6 +990,32 @@ function onMouseMove(event) {
         
         lastMouse = { x: event.clientX, y: event.clientY };
         return;
+    }
+
+    // 폴리곤 가이드 라인 업데이트 ---
+    if (isPolygonMode && polygonPoints.length > 0) {
+        updatePolygonGuide(event);
+    }
+
+    // --- 스컬프팅 드래그 및 브러시 표시 ---
+    if (isSculptMode) {
+        updateSculptBrush(event); // 브러시 위치 업데이트
+        
+        if (isSculptingAction) {
+            sculptMesh(event); // 드래그 중 변형 적용
+        }
+        return; // 스컬프팅 중에는 다른 동작 차단
+    }
+
+    // --- 세부 조각(Detail) 드래그 ---
+    if (isDetailMode && selectedDetailVertex) {
+        moveDetailVertex(event);
+        return;
+    }
+    
+    // 세부 조각 모드일 때 마우스 오버 효과 (점 하이라이트 등)
+    if (isDetailMode && !selectedDetailVertex) {
+        highlightDetailVertex(event);
     }
     
     // 도형 그리기 모드
@@ -936,17 +1109,36 @@ function onMouseUp(event) {
         
         return;
     }
+
+    // ---  세부 조각 종료 ---
+    if (isDetailMode) {
+        if (selectedDetailVertex) {
+            selectedDetailVertex = null;
+            detailVertexIndex = -1;
+            saveState(); // 변형 후 상태 저장
+        }
+        // return; // 회전을 위해 return 하지 않음
+    }
+
+    // --- 스컬프팅 종료 ---
+    if (isSculptMode) {
+        isSculptingAction = false;
+        // 중요: 여기서 return을 제거해야 아래의 회전 정지 코드가 실행됩니다.
+    }
     
+    // 회전 및 드래그 종료 (스컬프팅 모드여도 이 코드가 실행되어야 함)
     if (isDragging) {
         isDragging = false;
         isRotating = false;
     }
     
+    // 도형 그리기 종료
     if (isShapeDrawingMode && isDrawingShape) {
         endShapeDrawing();
         saveState(); // 상태 저장
     }
     
+    // 펜 그리기 종료
     if (isDrawing) {
         isDrawing = false;
         currentPoints = [];
@@ -4388,6 +4580,1712 @@ function cleanupAudioVisualizations() {
         viz.material.dispose();
     });
     audioVisualizations = [];
+}
+
+// --- 회전 패널 및 기능 구현 시작 ---
+
+function toggleRotatePanel() {
+    const panel = document.getElementById('rotate-panel');
+    const isHidden = panel.style.display === 'none' || panel.style.display === '';
+    panel.style.display = isHidden ? 'flex' : 'none';
+    
+    if (isHidden) {
+        // 다른 패널 닫기
+        document.getElementById('pen-panel').style.display = 'none';
+        document.getElementById('map-panel').style.display = 'none';
+        document.getElementById('shapes-panel').style.display = 'none';
+        document.getElementById('text-panel').style.display = 'none';
+        document.getElementById('image-panel').style.display = 'none';
+        document.getElementById('paint-panel').style.display = 'none';
+        document.getElementById('bridge-panel').style.display = 'none';
+        document.getElementById('ctrl-shapes-panel').style.display = 'none';
+        document.getElementById('audio-panel').style.display = 'none';
+        closeObjectInfo();
+    }
+}
+
+function startRotation() {
+    if (!selectedObject) {
+        showStatus('회전할 객체를 먼저 선택해주세요 (포인터 모드)');
+        return;
+    }
+    isObjectRotating = true;
+    showStatus('회전 시작');
+}
+
+function stopRotation() {
+    isObjectRotating = false;
+    showStatus('회전 정지');
+}
+
+function resetRotation() {
+    if (!selectedObject) {
+        showStatus('객체를 선택해주세요.');
+        return;
+    }
+    
+    selectedObject.rotation.set(0, 0, 0);
+    
+    // 객체가 평면에 붙어있는 경우 기본 방향 보정
+    if (selectedObject.name.startsWith('text_') || selectedObject.name.startsWith('image_') || selectedObject.name.startsWith('plane_')) {
+        if (currentPlane === 'horizontal') selectedObject.rotation.x = -Math.PI / 2;
+        else if (currentPlane === 'vertical-x') selectedObject.rotation.y = Math.PI / 2;
+        // vertical-z는 0,0,0
+    }
+    
+    isObjectRotating = false;
+    showStatus('회전 초기화 완료');
+    saveState();
+}
+
+function rotateSelectedObject(axis, angleDeg) {
+    if (!selectedObject) {
+        showStatus('회전할 객체를 선택해주세요.');
+        return;
+    }
+    
+    // 각도를 라디안으로 변환
+    const radian = angleDeg * (Math.PI / 180);
+    
+    if (axis === 'x') selectedObject.rotation.x += radian;
+    else if (axis === 'y') selectedObject.rotation.y += radian;
+    else if (axis === 'z') selectedObject.rotation.z += radian;
+    
+    showStatus(`${axis.toUpperCase()}축으로 ${angleDeg}도 회전`);
+    saveState();
+}
+
+// 자동 회전 체크박스 이벤트 리스너 (HTML에서 직접 호출되지 않는 경우를 대비)
+document.getElementById('autoRotate').addEventListener('change', (e) => {
+    if (e.target.checked) {
+        startRotation();
+    } else {
+        stopRotation();
+    }
+});
+
+// --- 애니메이션 기능 구현 ---
+
+function toggleAnimationPanel() {
+    const panel = document.getElementById('animation-panel');
+    const isHidden = panel.style.display === 'none' || panel.style.display === '';
+    panel.style.display = isHidden ? 'flex' : 'none';
+    
+    // 다른 패널 닫기 (기존 패널들)
+    if (isHidden) {
+        document.getElementById('pen-panel').style.display = 'none';
+        document.getElementById('map-panel').style.display = 'none';
+        document.getElementById('shapes-panel').style.display = 'none';
+        document.getElementById('text-panel').style.display = 'none';
+        document.getElementById('image-panel').style.display = 'none';
+        document.getElementById('paint-panel').style.display = 'none';
+        document.getElementById('bridge-panel').style.display = 'none';
+        document.getElementById('rotate-panel').style.display = 'none';
+        document.getElementById('audio-panel').style.display = 'none';
+        closeObjectInfo();
+    }
+}
+
+// 현재 장면의 모든 객체 상태를 캡처 (키프레임 저장)
+function captureKeyframe() {
+    const frameData = [];
+    
+    drawingGroup.children.forEach(child => {
+        frameData.push({
+            uuid: child.uuid, // 객체 고유 ID로 식별
+            position: child.position.clone(),
+            rotation: child.rotation.clone(),
+            scale: child.scale.clone()
+        });
+    });
+
+    if (frameData.length === 0) {
+        showStatus('캡처할 객체가 없습니다.');
+        return;
+    }
+
+    animationFrames.push(frameData);
+    document.getElementById('frameCount').textContent = animationFrames.length;
+    
+    // 시각적 피드백
+    showStatus(`프레임 ${animationFrames.length} 캡처됨`);
+}
+
+function toggleAnimation() {
+    if (animationFrames.length < 2) {
+        showStatus('애니메이션을 재생하려면 최소 2개의 프레임이 필요합니다.');
+        return;
+    }
+
+    isAnimPlaying = !isAnimPlaying;
+    const btn = document.getElementById('btnAnimPlay');
+    
+    if (isAnimPlaying) {
+        btn.textContent = '⏸️ 일시정지';
+        document.getElementById('animation-panel').classList.add('anim-playing');
+        showStatus('애니메이션 재생 중...');
+        
+        // 재생 시작 시 초기화
+        if (animProgress >= 1) {
+            currentFrameIdx = 0;
+            animProgress = 0;
+        }
+    } else {
+        btn.textContent = '▶️ 재생';
+        document.getElementById('animation-panel').classList.remove('anim-playing');
+        showStatus('애니메이션 일시정지');
+    }
+}
+
+function stopAnimation() {
+    isAnimPlaying = false;
+    currentFrameIdx = 0;
+    animProgress = 0;
+    
+    document.getElementById('btnAnimPlay').textContent = '▶️ 재생';
+    document.getElementById('animation-panel').classList.remove('anim-playing');
+    
+    // 첫 번째 프레임으로 복귀
+    if (animationFrames.length > 0) {
+        restoreFrame(0);
+    }
+    showStatus('애니메이션 정지');
+}
+
+function clearAnimation() {
+    stopAnimation();
+    animationFrames = [];
+    document.getElementById('frameCount').textContent = '0';
+    showStatus('모든 프레임이 삭제되었습니다.');
+}
+
+// 특정 프레임 상태로 즉시 복구
+function restoreFrame(index) {
+    if (!animationFrames[index]) return;
+    
+    const frameData = animationFrames[index];
+    frameData.forEach(data => {
+        const object = drawingGroup.children.find(child => child.uuid === data.uuid);
+        if (object) {
+            object.position.copy(data.position);
+            object.rotation.copy(data.rotation);
+            object.scale.copy(data.scale);
+        }
+    });
+}
+
+// 애니메이션 업데이트 루프 (프레임 간 보간)
+function updateAnimation() {
+    const speed = parseInt(document.getElementById('animSpeed').value);
+    const speedFactor = speed * 0.0005; // 속도 조절 계수
+    
+    animProgress += speedFactor;
+    
+    // 다음 프레임으로 넘어감
+    if (animProgress >= 1) {
+        animProgress = 0;
+        currentFrameIdx++;
+        
+        // 마지막 프레임 도달 시
+        if (currentFrameIdx >= animationFrames.length - 1) {
+            const isLoop = document.getElementById('animLoop').checked;
+            if (isLoop) {
+                currentFrameIdx = 0; // 처음으로 루프
+            } else {
+                stopAnimation(); // 정지
+                return;
+            }
+        }
+    }
+    
+    // 현재 프레임과 다음 프레임 사이를 보간(Interpolation)
+    const currentFrame = animationFrames[currentFrameIdx];
+    const nextFrame = animationFrames[currentFrameIdx + 1];
+    
+    if (!currentFrame || !nextFrame) return;
+
+    // 각 객체별로 보간 적용
+    nextFrame.forEach(nextData => {
+        const object = drawingGroup.children.find(child => child.uuid === nextData.uuid);
+        const currData = currentFrame.find(data => data.uuid === nextData.uuid);
+        
+        if (object && currData) {
+            // 위치 보간 (Lerp)
+            object.position.lerpVectors(currData.position, nextData.position, animProgress);
+            
+            // 크기 보간 (Lerp)
+            object.scale.lerpVectors(currData.scale, nextData.scale, animProgress);
+            
+            // 회전 보간 (단순 Euler 보간)
+            object.rotation.x = currData.rotation.x + (nextData.rotation.x - currData.rotation.x) * animProgress;
+            object.rotation.y = currData.rotation.y + (nextData.rotation.y - currData.rotation.y) * animProgress;
+            object.rotation.z = currData.rotation.z + (nextData.rotation.z - currData.rotation.z) * animProgress;
+        }
+    });
+}
+
+// [script.js] 파일 맨 끝에 추가
+
+// --- 폴리곤 모델링 기능 구현 ---
+
+function togglePolygonPanel() {
+    const panel = document.getElementById('polygon-panel');
+    const isHidden = panel.style.display === 'none' || panel.style.display === '';
+    
+    if (isHidden) {
+        // 폴리곤 모드 활성화
+        startPolygonMode();
+        panel.style.display = 'flex';
+    } else {
+        // 패널 닫기 -> 모드 종료
+        panel.style.display = 'none';
+        isPolygonMode = false;
+        document.getElementById('polygonBtn').classList.remove('active');
+        document.getElementById('canvas').classList.remove('polygon-mode');
+        resetPolygonVertices(); // 작업 중이던 점 초기화
+        hideStatus();
+    }
+}
+
+function startPolygonMode() {
+    // 다른 모드들 끄기
+    isEraserMode = false;
+    isPointerMode = false;
+    isMovingObjects = false;
+    isCameraMode = false;
+    isShapeDrawingMode = false;
+    isPaintMode = false;
+    isBridgeMode = false;
+    isDrawing = false;
+    
+    // UI 업데이트
+    document.querySelectorAll('.menu-btn').forEach(btn => btn.classList.remove('active'));
+    document.getElementById('polygonBtn').classList.add('active');
+    
+    const canvas = document.getElementById('canvas');
+    canvas.className = ''; // 기존 클래스 초기화
+    canvas.classList.add('polygon-mode');
+    
+    isPolygonMode = true;
+    showStatus('폴리곤 모드: 클릭하여 점을 찍으세요. (완료: 첫 점 클릭 or 완료 버튼)');
+    
+    // 다른 패널들 닫기
+    const panels = ['pen-panel', 'map-panel', 'shapes-panel', 'text-panel', 'image-panel', 'paint-panel', 'bridge-panel', 'rotate-panel', 'animation-panel', 'audio-panel'];
+    panels.forEach(id => {
+        const p = document.getElementById(id);
+        if(p) p.style.display = 'none';
+    });
+    closeObjectInfo();
+}
+
+// 클릭하여 점 추가
+function handlePolygonClick(event) {
+    const point = getIntersectionPoint(event);
+    if (!point) return;
+
+    // 첫 번째 점을 클릭했는지 확인 (닫기/완료 로직)
+    if (polygonPoints.length > 2) {
+        const firstPoint = polygonPoints[0];
+        const dist = point.distanceTo(firstPoint);
+        // 첫 점과 가까우면(클릭 오차 허용) 도형 닫기
+        if (dist < 0.5) {
+            finishPolygon();
+            return;
+        }
+    }
+
+    // 점 저장
+    polygonPoints.push(point);
+
+    // 1. 점(마커) 시각화
+    const markerGeo = new THREE.SphereGeometry(0.15, 16, 16);
+    const markerMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const marker = new THREE.Mesh(markerGeo, markerMat);
+    marker.position.copy(point);
+    scene.add(marker);
+    polygonMarkers.push(marker);
+
+    // 2. 선(라인) 시각화
+    if (polygonPoints.length > 1) {
+        const prevPoint = polygonPoints[polygonPoints.length - 2];
+        const geometry = new THREE.BufferGeometry().setFromPoints([prevPoint, point]);
+        const material = new THREE.LineBasicMaterial({ color: 0xffff00 });
+        const line = new THREE.Line(geometry, material);
+        scene.add(line);
+        polygonLines.push(line);
+    }
+}
+
+// 마우스 이동 시 가이드 라인 업데이트
+function updatePolygonGuide(event) {
+    const point = getIntersectionPoint(event);
+    if (!point) return;
+
+    const lastPoint = polygonPoints[polygonPoints.length - 1];
+
+    // 기존 가이드 라인 제거
+    if (polygonGuideLine) {
+        scene.remove(polygonGuideLine);
+        polygonGuideLine.geometry.dispose();
+        polygonGuideLine.material.dispose();
+    }
+
+    // 새 가이드 라인 생성
+    const geometry = new THREE.BufferGeometry().setFromPoints([lastPoint, point]);
+    const material = new THREE.LineBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5, dashSize: 0.2, gapSize: 0.1 });
+    polygonGuideLine = new THREE.Line(geometry, material);
+    scene.add(polygonGuideLine);
+}
+
+// 점 초기화 (취소)
+function resetPolygonVertices() {
+    // 마커 제거
+    polygonMarkers.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
+    polygonMarkers = [];
+    
+    // 선 제거
+    polygonLines.forEach(l => { scene.remove(l); l.geometry.dispose(); l.material.dispose(); });
+    polygonLines = [];
+    
+    // 가이드 라인 제거
+    if (polygonGuideLine) {
+        scene.remove(polygonGuideLine);
+        polygonGuideLine.geometry.dispose();
+        polygonGuideLine.material.dispose();
+        polygonGuideLine = null;
+    }
+    
+    polygonPoints = [];
+    showStatus('폴리곤 점이 초기화되었습니다.');
+}
+
+// 폴리곤 완성 및 3D 생성
+function finishPolygon() {
+    if (polygonPoints.length < 3) {
+        showStatus('최소 3개의 점이 필요합니다.');
+        return;
+    }
+
+    // 1. 3D 좌표를 2D Shape 좌표로 변환
+    // 현재 평면(currentPlane)에 따라 투영 축이 달라짐
+    const shape = new THREE.Shape();
+    
+    // 첫 점 이동
+    if (currentPlane === 'horizontal') { // XZ 평면 -> x, z 사용
+        shape.moveTo(polygonPoints[0].x, polygonPoints[0].z);
+        for (let i = 1; i < polygonPoints.length; i++) {
+            shape.lineTo(polygonPoints[i].x, polygonPoints[i].z);
+        }
+    } else if (currentPlane === 'vertical-x') { // YZ 평면 -> z, y 사용 (회전 고려)
+        shape.moveTo(polygonPoints[0].z, polygonPoints[0].y);
+        for (let i = 1; i < polygonPoints.length; i++) {
+            shape.lineTo(polygonPoints[i].z, polygonPoints[i].y);
+        }
+    } else if (currentPlane === 'vertical-z') { // XY 평면 -> x, y 사용
+        shape.moveTo(polygonPoints[0].x, polygonPoints[0].y);
+        for (let i = 1; i < polygonPoints.length; i++) {
+            shape.lineTo(polygonPoints[i].x, polygonPoints[i].y);
+        }
+    }
+    
+    shape.closePath();
+
+    // 2. Extrude 설정 가져오기
+    const depth = parseFloat(document.getElementById('polyDepth').value);
+    const bevel = document.getElementById('polyBevel').checked;
+
+    const extrudeSettings = {
+        steps: 1,
+        depth: depth,
+        bevelEnabled: bevel,
+        bevelThickness: 0.1,
+        bevelSize: 0.1,
+        bevelSegments: 2
+    };
+
+    // 3. 지오메트리 생성
+    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+    
+    // 4. 중심점 맞추기 (Center Geometry)
+    geometry.center();
+
+    // 5. 메쉬 생성
+    const material = new THREE.MeshStandardMaterial({ 
+        color: color, 
+        roughness: 0.5, 
+        metalness: 0.5,
+        side: THREE.DoubleSide
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+
+    // 6. 위치 및 회전 복구
+    // geometry.center()로 인해 원점으로 이동했으므로, 원래 점들의 중심 위치로 이동시켜야 함
+    const center = new THREE.Vector3();
+    const box = new THREE.Box3().setFromPoints(polygonPoints);
+    box.getCenter(center);
+
+    // 회전 및 위치 적용
+    if (currentPlane === 'horizontal') {
+        mesh.rotation.x = Math.PI / 2; // Extrude는 기본적으로 Z축으로 솟음 -> 눕혀야 함
+        mesh.position.set(center.x, center.y, center.z);
+    } else if (currentPlane === 'vertical-x') {
+        mesh.rotation.y = Math.PI / 2;
+        mesh.position.set(center.x, center.y, center.z);
+    } else if (currentPlane === 'vertical-z') {
+        // 기본 방향이 XY평면이므로 회전 불필요 (단, Extrude 방향 고려)
+        mesh.position.set(center.x, center.y, center.z);
+    }
+
+    mesh.name = `polygon_${shapeIdCounter++}`;
+    drawingGroup.add(mesh);
+
+    // 7. 정리
+    resetPolygonVertices();
+    showStatus('폴리곤 모델이 생성되었습니다!');
+    saveState();
+}
+
+// input range 값 표시 업데이트 리스너
+document.getElementById('polyDepth').addEventListener('input', (e) => {
+    document.getElementById('polyDepthValue').textContent = e.target.value;
+});
+
+// --- 객체 복제 기능 구현 ---
+
+function duplicateSelectedObjects() {
+    // 1. 선택된 객체가 있는지 확인
+    if (!selectedObject && selectedObjects.length === 0) {
+        showStatus('복제할 객체를 선택해주세요. (포인터 모드)');
+        return;
+    }
+
+    // 복제된 새 객체들을 담을 배열
+    let newClones = [];
+    
+    // 이동 오프셋 (원본과 겹치지 않게 약간 옆으로 이동)
+    // 현재 평면 설정에 따라 이동 방향을 다르게 설정
+    let offset;
+    if (currentPlane === 'horizontal') {
+        offset = new THREE.Vector3(1, 0, 1);
+    } else if (currentPlane === 'vertical-x') {
+        offset = new THREE.Vector3(0, 1, 1);
+    } else {
+        offset = new THREE.Vector3(1, 1, 0);
+    }
+
+    // 복제 처리 내부 함수
+    const processClone = (original) => {
+        // 기존의 cloneObject 함수 재사용 (깊은 복사)
+        const cloned = cloneObject(original);
+        
+        if (cloned) {
+            // 1. 위치 오프셋 적용
+            cloned.position.add(offset);
+            
+            // 2. 새로운 고유 이름 부여 (충돌 방지)
+            // 예: "cube_1" -> "cube_1_copy_123"
+            const typeName = original.name.split('_')[0] || 'object';
+            cloned.name = `${typeName}_copy_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+            
+            // 3. 씬에 추가
+            drawingGroup.add(cloned);
+            
+            // 4. 오디오 시각화 객체인 경우 처리
+            if (original.userData.isAudioVisualization) {
+                cloned.userData = JSON.parse(JSON.stringify(original.userData));
+                audioVisualizations.push(cloned);
+            }
+
+            return cloned;
+        }
+        return null;
+    };
+
+    // 2. 다중 선택 복제
+    if (selectedObjects.length > 0) {
+        // 기존 선택된 객체들을 순회하며 복제
+        selectedObjects.forEach(obj => {
+            const cloned = processClone(obj);
+            if (cloned) newClones.push(cloned);
+        });
+
+        // 기존 선택 해제 후 새 객체들 선택
+        deselectAllObjects();
+        
+        // 다중 선택 모드 활성화 및 새 객체들 선택
+        isMultiSelectMode = true;
+        selectedObjects = newClones;
+        selectedObjects.forEach(obj => applySelectionEffect(obj));
+        
+        showStatus(`${newClones.length}개의 객체가 복제되었습니다.`);
+        showMultiObjectInfo(); // 정보 패널 갱신
+    } 
+    // 3. 단일 선택 복제
+    else if (selectedObject) {
+        const cloned = processClone(selectedObject);
+        
+        if (cloned) {
+            // 기존 선택 해제 후 새 객체 선택
+            deselectAllObjects();
+            
+            selectedObject = cloned;
+            applySelectionEffect(cloned);
+            
+            showStatus('객체가 복제되었습니다.');
+            showObjectInfo(cloned); // 정보 패널 갱신
+        }
+    }
+
+    // 4. 상태 저장 (Undo를 위해)
+    saveState();
+}
+
+// --- 스컬프팅 기능 구현 ---
+
+function toggleSculptPanel() {
+    const panel = document.getElementById('sculpt-panel');
+    const isHidden = panel.style.display === 'none' || panel.style.display === '';
+    
+    if (isHidden) {
+        startSculptMode();
+        panel.style.display = 'flex';
+    } else {
+        panel.style.display = 'none';
+        isSculptMode = false;
+        document.getElementById('sculptBtn').classList.remove('active');
+        document.getElementById('canvas').classList.remove('sculpt-mode');
+        
+        // 브러시 가이드 제거
+        if (sculptBrushMesh) {
+            scene.remove(sculptBrushMesh);
+            sculptBrushMesh = null;
+        }
+        hideStatus();
+    }
+}
+
+function startSculptMode() {
+    // 다른 모드들 끄기
+    isEraserMode = false;
+    isPointerMode = false;
+    isMovingObjects = false;
+    isCameraMode = false;
+    isShapeDrawingMode = false;
+    isPaintMode = false;
+    isBridgeMode = false;
+    isPolygonMode = false;
+    isDrawing = false;
+    
+    // UI 업데이트
+    document.querySelectorAll('.menu-btn').forEach(btn => btn.classList.remove('active'));
+    document.getElementById('sculptBtn').classList.add('active');
+    
+    const canvas = document.getElementById('canvas');
+    canvas.className = '';
+    canvas.classList.add('sculpt-mode');
+    
+    isSculptMode = true;
+    showStatus('스컬프팅 모드: 객체를 드래그하여 형태를 변형하세요.');
+    
+    // 다른 패널들 닫기
+    const panels = ['pen-panel', 'map-panel', 'shapes-panel', 'text-panel', 'image-panel', 'paint-panel', 'bridge-panel', 'rotate-panel', 'animation-panel', 'audio-panel', 'polygon-panel'];
+    panels.forEach(id => {
+        const p = document.getElementById(id);
+        if(p) p.style.display = 'none';
+    });
+    closeObjectInfo();
+
+    // 브러시 가이드 생성
+    const geometry = new THREE.RingGeometry(0.4, 0.5, 32);
+    const material = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
+    sculptBrushMesh = new THREE.Mesh(geometry, material);
+    sculptBrushMesh.rotation.x = -Math.PI / 2;
+    sculptBrushMesh.visible = false;
+    scene.add(sculptBrushMesh);
+}
+
+function setSculptMode(mode, btnElement) {
+    sculptTool = mode;
+    
+    // 버튼 스타일 업데이트
+    document.querySelectorAll('.sculpt-mode-btn').forEach(b => b.classList.remove('active'));
+    btnElement.classList.add('active');
+    
+    showStatus(mode === 'pull' ? '모드: 융기 (당기기)' : '모드: 침식 (밀어넣기)');
+}
+
+function updateSculptBrush(event) {
+    if (!sculptBrushMesh) return;
+
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObjects(drawingGroup.children, true);
+    
+    if (intersects.length > 0) {
+        const hit = intersects[0];
+        sculptBrushMesh.visible = true;
+        sculptBrushMesh.position.copy(hit.point);
+        // 표면의 법선(Normal) 방향에 맞춰 브러시 회전
+        if (hit.face) {
+            sculptBrushMesh.lookAt(hit.point.clone().add(hit.face.normal));
+        }
+        
+        // 브러시 크기 반영
+        const radius = parseFloat(document.getElementById('sculptRadius').value);
+        const scale = radius * 2; // 링 크기 조절
+        sculptBrushMesh.scale.set(scale, scale, scale);
+    } else {
+        sculptBrushMesh.visible = false;
+    }
+}
+
+function sculptMesh(event) {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObjects(drawingGroup.children, true);
+    
+    if (intersects.length > 0) {
+        const intersect = intersects[0];
+        const mesh = intersect.object;
+        
+        // Mesh가 아니거나 position 속성이 없으면 패스
+        if (!mesh.isMesh || !mesh.geometry.attributes.position) return;
+
+        const point = intersect.point; // 월드 좌표계의 충돌 지점
+        const geometry = mesh.geometry;
+        const positions = geometry.attributes.position;
+        const normals = geometry.attributes.normal;
+        
+        // 설정값 가져오기
+        const radius = parseFloat(document.getElementById('sculptRadius').value);
+        const intensity = parseFloat(document.getElementById('sculptIntensity').value) * 0.1;
+        const direction = sculptTool === 'pull' ? 1 : -1;
+
+        // 월드 좌표 -> 로컬 좌표 변환 (Geometry 처리를 위해)
+        const localPoint = mesh.worldToLocal(point.clone());
+        
+        let modified = false;
+
+        // 모든 버텍스를 순회하며 범위 내에 있는지 확인
+        // (성능 최적화를 위해 BVH 등을 쓸 수 있지만 여기선 단순 거리 계산 사용)
+        const v = new THREE.Vector3();
+        
+        for (let i = 0; i < positions.count; i++) {
+            v.fromBufferAttribute(positions, i);
+            
+            const dist = v.distanceTo(localPoint);
+            
+            if (dist < radius) {
+                // 거리에 따른 영향력 계산 (중심일수록 강하게)
+                const falloff = Math.pow(1 - dist / radius, 2); // 부드러운 곡선
+                const moveAmount = intensity * falloff * direction;
+                
+                // 해당 버텍스의 법선 벡터 가져오기
+                let normal = new THREE.Vector3();
+                if (normals) {
+                    normal.fromBufferAttribute(normals, i);
+                } else {
+                    // 법선이 없으면 중심에서 밖으로 향하는 방향 사용
+                    normal.copy(v).normalize();
+                }
+
+                // 버텍스 이동
+                v.addScaledVector(normal, moveAmount);
+                
+                // 변경된 위치 적용
+                positions.setXYZ(i, v.x, v.y, v.z);
+                modified = true;
+            }
+        }
+
+        if (modified) {
+            positions.needsUpdate = true;
+            geometry.computeVertexNormals(); // 조명 효과 업데이트를 위해 법선 재계산
+        }
+    }
+}
+
+// --- 세부 조각(Vertex Editing) 기능 구현 ---
+
+function toggleDetailPanel() {
+    const panel = document.getElementById('detail-panel');
+    const isHidden = panel.style.display === 'none' || panel.style.display === '';
+    
+    if (isHidden) {
+        if (!selectedObject || !selectedObject.isMesh) {
+            showStatus('편집할 객체(Mesh)를 먼저 선택해주세요. (포인터 모드)');
+            return;
+        }
+        startDetailMode();
+        panel.style.display = 'flex';
+    } else {
+        endDetailMode();
+        panel.style.display = 'none';
+    }
+}
+
+function startDetailMode() {
+    // 다른 모드 끄기
+    isEraserMode = false;
+    isPointerMode = false;
+    isMovingObjects = false;
+    isCameraMode = false;
+    isShapeDrawingMode = false;
+    isPaintMode = false;
+    isBridgeMode = false;
+    isPolygonMode = false;
+    isSculptMode = false;
+    isDrawing = false;
+
+    // UI 업데이트
+    document.querySelectorAll('.menu-btn').forEach(btn => btn.classList.remove('active'));
+    document.getElementById('detailBtn').classList.add('active');
+    
+    const canvas = document.getElementById('canvas');
+    canvas.className = '';
+    canvas.classList.add('detail-mode');
+
+    isDetailMode = true;
+    detailTargetMesh = selectedObject; // 현재 선택된 객체를 타겟으로 설정
+
+    // 다른 패널 닫기
+    const panels = ['pen-panel', 'map-panel', 'shapes-panel', 'text-panel', 'image-panel', 'paint-panel', 'bridge-panel', 'rotate-panel', 'animation-panel', 'audio-panel', 'polygon-panel', 'sculpt-panel'];
+    panels.forEach(id => {
+        const p = document.getElementById(id);
+        if(p) p.style.display = 'none';
+    });
+    closeObjectInfo();
+
+    showStatus('세부 조각 모드: 점을 드래그하여 형태를 수정하세요.');
+
+    // 시각적 가이드(점, 선) 생성
+    createDetailVisuals();
+}
+
+function endDetailMode() {
+    isDetailMode = false;
+    detailTargetMesh = null;
+    selectedDetailVertex = null;
+    detailVertexIndex = -1;
+
+    // 가이드 제거
+    if (detailHelperGroup) {
+        scene.remove(detailHelperGroup);
+        // 메모리 정리
+        detailHelperGroup.children.forEach(child => {
+            if(child.geometry) child.geometry.dispose();
+            if(child.material) child.material.dispose();
+        });
+        detailHelperGroup = null;
+    }
+
+    document.getElementById('detailBtn').classList.remove('active');
+    document.getElementById('canvas').classList.remove('detail-mode');
+    hideStatus();
+}
+
+function createDetailVisuals() {
+    if (!detailTargetMesh) return;
+
+    if (detailHelperGroup) {
+        scene.remove(detailHelperGroup);
+    }
+
+    detailHelperGroup = new THREE.Group();
+    scene.add(detailHelperGroup);
+
+    // 1. 와이어프레임 (격자 선) 생성
+    if (document.getElementById('showWireframe').checked) {
+        const wireframeGeo = new THREE.WireframeGeometry(detailTargetMesh.geometry);
+        const wireframeMat = new THREE.LineBasicMaterial({ color: 0x34d399, transparent: true, opacity: 0.5 });
+        const wireframe = new THREE.LineSegments(wireframeGeo, wireframeMat);
+        
+        // 타겟 메쉬의 위치/회전/크기 따라가기
+        wireframe.position.copy(detailTargetMesh.position);
+        wireframe.rotation.copy(detailTargetMesh.rotation);
+        wireframe.scale.copy(detailTargetMesh.scale);
+        
+        detailHelperGroup.add(wireframe);
+    }
+
+    // 2. 버텍스 포인트 (점) 생성
+    if (document.getElementById('showPoints').checked) {
+        const positionAttribute = detailTargetMesh.geometry.attributes.position;
+        const vertexCount = positionAttribute.count;
+        
+        // 점 생성 (성능을 위해 구체가 아닌 Points나 Sprite를 쓸 수도 있지만, 드래그 편의상 작은 구체 사용)
+        // 버텍스 수가 너무 많으면 성능 저하가 올 수 있음 -> 단순 도형에 적합
+        const sphereGeo = new THREE.SphereGeometry(0.1, 8, 8); // 작은 점
+        const sphereMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+
+        for (let i = 0; i < vertexCount; i++) {
+            const vertex = new THREE.Vector3();
+            vertex.fromBufferAttribute(positionAttribute, i);
+            
+            // 로컬 좌표 -> 월드 좌표 변환 (메쉬의 변형 적용)
+            vertex.applyMatrix4(detailTargetMesh.matrixWorld);
+
+            const point = new THREE.Mesh(sphereGeo, sphereMat.clone());
+            point.position.copy(vertex);
+            point.userData.vertexIndex = i; // 인덱스 저장
+            point.userData.isHelper = true;
+            
+            detailHelperGroup.add(point);
+        }
+    }
+}
+
+function updateDetailVisuals() {
+    // 체크박스 변경 시 재생성
+    if (isDetailMode && detailTargetMesh) {
+        createDetailVisuals();
+    }
+}
+
+function handleDetailVertexClick(event) {
+    if (!detailHelperGroup) return;
+
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    
+    raycaster.setFromCamera(mouse, camera);
+    
+    // 헬퍼 그룹 내의 점들과 충돌 검사
+    const intersects = raycaster.intersectObjects(detailHelperGroup.children);
+    
+    for (let i = 0; i < intersects.length; i++) {
+        const object = intersects[i].object;
+        if (object.userData.isHelper) {
+            selectedDetailVertex = object;
+            detailVertexIndex = object.userData.vertexIndex;
+            
+            // 선택된 점 색상 변경
+            object.material.color.set(0xff0000); 
+            showStatus('점 선택됨: 드래그하여 이동');
+            return;
+        }
+    }
+}
+
+function moveDetailVertex(event) {
+    if (!selectedDetailVertex || !detailTargetMesh) return;
+
+    // 마우스 위치로 점 이동 (DrawingPlane 이용)
+    const point = getIntersectionPoint(event);
+    if (point) {
+        // 1. 헬퍼 점 이동 (시각적)
+        // 현재 평면 설정에 따라 이동 제한 (편의상)
+        if (currentPlane === 'horizontal') {
+            selectedDetailVertex.position.set(point.x, selectedDetailVertex.position.y, point.z); // Y축 고정? 아니면 자유? -> 스컬프팅이므로 보통 자유가 좋지만 DrawingPlane을 따름
+            // *자유 이동을 원하면 DrawingPlane 높이(Y)를 마우스 휠로 조절하며 쓰면 됨
+             selectedDetailVertex.position.copy(point); // 완전 자유 이동
+        } else {
+             selectedDetailVertex.position.copy(point);
+        }
+
+        // 2. 실제 메쉬의 버텍스 업데이트
+        // 월드 좌표(헬퍼 위치) -> 로컬 좌표(메쉬 기준) 변환
+        const localPoint = selectedDetailVertex.position.clone();
+        detailTargetMesh.worldToLocal(localPoint);
+
+        const positionAttribute = detailTargetMesh.geometry.attributes.position;
+        positionAttribute.setXYZ(detailVertexIndex, localPoint.x, localPoint.y, localPoint.z);
+        positionAttribute.needsUpdate = true;
+        
+        // 법선 재계산 (조명 효과)
+        detailTargetMesh.geometry.computeVertexNormals();
+
+        // 3. 와이어프레임 가이드도 같이 업데이트 (매 프레임 재생성은 무거우니 위치만 이동하거나, 여기선 생략하고 드래그 끝나면 갱신)
+        // 즉각적인 피드백을 위해 와이어프레임은 잠시 숨기거나, 놔두는게 좋음.
+        // 여기서는 점만 움직이고, 선은 드래그 끝나고 갱신하는게 성능상 좋음.
+    }
+}
+
+function highlightDetailVertex(event) {
+    if (!detailHelperGroup) return;
+
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObjects(detailHelperGroup.children);
+    
+    // 모든 점 색상 초기화
+    detailHelperGroup.children.forEach(child => {
+        if (child.userData.isHelper) {
+            if (child === selectedDetailVertex) child.material.color.set(0xff0000); // 드래그 중인건 빨강 유지
+            else child.material.color.set(0xffff00); // 기본 노랑
+        }
+    });
+
+    // 호버된 점 하이라이트
+    for (let i = 0; i < intersects.length; i++) {
+        const object = intersects[i].object;
+        if (object.userData.isHelper && object !== selectedDetailVertex) {
+            object.material.color.set(0xffa500); // 주황색
+            break;
+        }
+    }
+}
+
+// --- 면 분할 기능 (평면 중간에 점 추가) ---
+
+function subdivideTargetMesh() {
+    if (!detailTargetMesh || !detailTargetMesh.isMesh) {
+        showStatus('분할할 객체가 없습니다.');
+        return;
+    }
+    
+    let geometry = detailTargetMesh.geometry;
+    
+    // 1. 인덱스가 있는 형상이면 Non-Indexed로 변환 (계산 단순화)
+    if (geometry.index) {
+        geometry = geometry.toNonIndexed();
+        detailTargetMesh.geometry = geometry;
+    }
+    
+    const posAttr = geometry.attributes.position;
+    const newPositions = [];
+    
+    // 2. 기존의 모든 삼각형 면을 순회
+    for (let i = 0; i < posAttr.count; i += 3) {
+        // 삼각형의 세 꼭짓점 가져오기
+        const v1 = new THREE.Vector3().fromBufferAttribute(posAttr, i);
+        const v2 = new THREE.Vector3().fromBufferAttribute(posAttr, i + 1);
+        const v3 = new THREE.Vector3().fromBufferAttribute(posAttr, i + 2);
+        
+        // 3. 면의 중심점(Center) 계산 -> 여기가 새로운 '평면 점'이 됩니다.
+        const center = new THREE.Vector3().addVectors(v1, v2).add(v3).divideScalar(3);
+        
+        // 4. 하나의 삼각형을 중심점을 기준으로 3개의 작은 삼각형으로 분할
+        // Triangle 1: v1 -> v2 -> center
+        newPositions.push(v1.x, v1.y, v1.z);
+        newPositions.push(v2.x, v2.y, v2.z);
+        newPositions.push(center.x, center.y, center.z);
+        
+        // Triangle 2: v2 -> v3 -> center
+        newPositions.push(v2.x, v2.y, v2.z);
+        newPositions.push(v3.x, v3.y, v3.z);
+        newPositions.push(center.x, center.y, center.z);
+        
+        // Triangle 3: v3 -> v1 -> center
+        newPositions.push(v3.x, v3.y, v3.z);
+        newPositions.push(v1.x, v1.y, v1.z);
+        newPositions.push(center.x, center.y, center.z);
+    }
+    
+    // 5. 새로운 위치 데이터로 지오메트리 업데이트
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(newPositions, 3));
+    
+    // 법선(Normal) 재계산 (빛 반사 업데이트)
+    geometry.computeVertexNormals();
+    
+    // 6. 시각적 가이드(노란 점) 즉시 갱신
+    createDetailVisuals();
+    
+    showStatus('면이 분할되었습니다. 이제 평면 가운데 점을 드래그해보세요!');
+    saveState();
+}
+
+// --- 동영상 추가 기능 구현 ---
+
+function toggleVideoPanel() {
+    const panel = document.getElementById('video-panel');
+    const isHidden = panel.style.display === 'none' || panel.style.display === '';
+    
+    panel.style.display = isHidden ? 'flex' : 'none';
+    
+    if (isHidden) {
+        // 다른 패널 닫기
+        const panels = ['pen-panel', 'map-panel', 'shapes-panel', 'text-panel', 'image-panel', 'paint-panel', 'bridge-panel', 'rotate-panel', 'animation-panel', 'audio-panel', 'polygon-panel', 'sculpt-panel', 'detail-panel'];
+        panels.forEach(id => {
+            const p = document.getElementById(id);
+            if(p) p.style.display = 'none';
+        });
+        closeObjectInfo();
+    }
+}
+
+function addVideo() {
+    const fileInput = document.getElementById('videoFile');
+    const urlInput = document.getElementById('videoUrl');
+    const width = parseFloat(document.getElementById('videoWidth').value);
+    const height = parseFloat(document.getElementById('videoHeight').value);
+    
+    let videoSrc = '';
+    
+    // 1. 파일이 선택되었는지 확인
+    if (fileInput.files && fileInput.files[0]) {
+        videoSrc = URL.createObjectURL(fileInput.files[0]);
+    } 
+    // 2. URL이 입력되었는지 확인
+    else if (urlInput.value.trim() !== '') {
+        videoSrc = urlInput.value.trim();
+    } else {
+        alert('동영상 파일이나 URL을 입력해주세요.');
+        return;
+    }
+    
+    // 3. HTML Video Element 생성
+    const video = document.createElement('video');
+    
+    // [중요] 속성 설정 순서 및 CORS 설정
+    video.crossOrigin = "anonymous"; // 다른 서버의 영상을 3D에 입히기 위해 필수
+    video.loop = true;
+    video.muted = true; // 브라우저 자동 재생 정책상 필수
+    video.playsInline = true;
+    
+    // [추가된 부분] 에러 핸들링 (검은 화면 원인 파악용)
+    video.onerror = function() {
+        console.error("비디오 로드 에러:", video.error);
+        alert("동영상을 로드할 수 없습니다.\n\n[원인 가능성]\n1. 유튜브 URL은 지원되지 않습니다. (.mp4 등 직접 파일 주소만 가능)\n2. 해당 서버가 외부 사이트에서의 접근(CORS)을 차단했습니다.\n3. 유효하지 않은 URL입니다.");
+    };
+
+    video.src = videoSrc;
+    video.load(); // 명시적 로드 호출
+
+    // 4. 비디오 재생 시도
+    const playPromise = video.play();
+    if (playPromise !== undefined) {
+        playPromise.then(_ => {
+            // 재생 성공
+            console.log("비디오 재생 시작됨");
+        })
+        .catch(error => {
+            console.warn("비디오 자동 재생 차단됨 (사용자 클릭 필요할 수 있음):", error);
+        });
+    }
+    
+    // 5. 비디오 텍스처 생성
+    const texture = new THREE.VideoTexture(video);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.format = THREE.RGBFormat;
+    
+    // 6. 평면 메쉬 생성
+    const geometry = new THREE.PlaneGeometry(width, height);
+    const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
+    
+    const mesh = new THREE.Mesh(geometry, material);
+    
+    // 7. 위치 설정
+    if (currentPlane === 'horizontal') {
+        mesh.position.set(0, planePosition.y + height/2, 0); 
+    } else if (currentPlane === 'vertical-x') {
+        mesh.position.set(planePosition.x, 0, 0);
+        mesh.rotation.y = Math.PI / 2;
+    } else if (currentPlane === 'vertical-z') {
+        mesh.position.set(0, 0, planePosition.z);
+    }
+    
+    mesh.name = `video_${videoIdCounter++}`;
+    
+    // 8. 데이터 저장
+    mesh.userData = {
+        videoElement: video,
+        isVideo: true
+    };
+    
+    drawingGroup.add(mesh);
+    videoElements.push(video); 
+    
+    // 9. 정리
+    fileInput.value = ''; 
+    urlInput.value = ''; // URL 입력창도 초기화
+    toggleVideoPanel();
+    
+    // 파일인 경우 바로 로드되지만, URL인 경우 시간이 걸릴 수 있어 안내 메시지 수정
+    showStatus('동영상 객체가 생성되었습니다. (검은 화면이면 URL 보안 정책 문제입니다)');
+    saveState();
+}
+
+
+// --- MOUSE 시뮬레이션 기능 구현 ---
+
+function toggleMousePanel() {
+    const panel = document.getElementById('mouse-panel');
+    const isHidden = panel.style.display === 'none' || panel.style.display === '';
+    
+    if (isHidden) {
+        startMouseMode();
+        panel.style.display = 'flex';
+    } else {
+        endMouseMode();
+        panel.style.display = 'none';
+    }
+}
+
+function startMouseMode() {
+    // 다른 모드 끄기
+    isEraserMode = false;
+    isPointerMode = false;
+    isMovingObjects = false;
+    isCameraMode = false;
+    isShapeDrawingMode = false;
+    isPaintMode = false;
+    isBridgeMode = false;
+    isPolygonMode = false;
+    isSculptMode = false;
+    isDetailMode = false;
+    isDrawing = false;
+    
+    // UI 업데이트
+    document.querySelectorAll('.menu-btn').forEach(btn => btn.classList.remove('active'));
+    document.getElementById('mouseBtn').classList.add('active');
+    
+    const canvas = document.getElementById('canvas');
+    canvas.className = '';
+    canvas.classList.add('mouse-mode');
+    
+    isMouseMode = true;
+    
+    // 기본 도구 선택 (쥐)
+    if (!currentMouseTool) {
+        const firstBtn = document.querySelector('.mouse-tool-btn');
+        if (firstBtn) setMouseTool('mouse', firstBtn);
+    }
+    
+    // 다른 패널 닫기
+    const panels = ['pen-panel', 'map-panel', 'shapes-panel', 'text-panel', 'image-panel', 'paint-panel', 'bridge-panel', 'rotate-panel', 'animation-panel', 'audio-panel', 'polygon-panel', 'sculpt-panel', 'detail-panel', 'video-panel'];
+    panels.forEach(id => {
+        const p = document.getElementById(id);
+        if(p) p.style.display = 'none';
+    });
+    closeObjectInfo();
+    
+    showStatus('MOUSE 모드: 원하는 위치에 클릭하여 배치하세요.');
+}
+
+function endMouseMode() {
+    isMouseMode = false;
+    document.getElementById('mouseBtn').classList.remove('active');
+    document.getElementById('canvas').classList.remove('mouse-mode');
+    hideStatus();
+}
+
+function setMouseTool(tool, btnElement) {
+    currentMouseTool = tool;
+    
+    // 버튼 스타일 업데이트
+    document.querySelectorAll('.mouse-tool-btn').forEach(b => b.classList.remove('active'));
+    if(btnElement) btnElement.classList.add('active');
+    
+    let msg = '';
+    if (tool === 'mouse') msg = '도구: 🐭 쥐 (클릭하여 소환)';
+    else if (tool === 'cheese') msg = '도구: 🧀 치즈 (쥐를 유인)';
+    else if (tool === 'trap') msg = '도구: 🪤 덫 (쥐를 잡음)';
+    
+    showStatus(msg);
+}
+
+function spawnMouseItem(event) {
+    const point = getIntersectionPoint(event);
+    if (!point) return;
+    
+    if (currentMouseTool === 'mouse') {
+        createMouseAgent(point);
+    } else if (currentMouseTool === 'cheese') {
+        createCheeseItem(point);
+    } else if (currentMouseTool === 'trap') {
+        createTrapItem(point);
+    }
+}
+
+function createMouseAgent(position) {
+    const group = new THREE.Group();
+    
+    // 몸통
+    const bodyGeo = new THREE.ConeGeometry(0.2, 0.5, 16);
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x808080 }); // 회색 쥐
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.rotation.x = Math.PI / 2; // 눕힘
+    body.position.z = -0.1;
+    
+    // 귀
+    const earGeo = new THREE.SphereGeometry(0.1, 8, 8);
+    const earMat = new THREE.MeshStandardMaterial({ color: 0xffaaaa }); // 분홍 귀
+    const earL = new THREE.Mesh(earGeo, earMat);
+    earL.position.set(0.1, 0.1, 0.1);
+    const earR = new THREE.Mesh(earGeo, earMat);
+    earR.position.set(-0.1, 0.1, 0.1);
+    
+    group.add(body);
+    group.add(earL);
+    group.add(earR);
+    
+    // 위치 설정 (바닥 위)
+    if (currentPlane === 'horizontal') {
+        group.position.set(position.x, position.y + 0.15, position.z);
+    } else {
+        group.position.copy(position);
+    }
+    
+    group.userData = {
+        isMouseAgent: true,
+        velocity: new THREE.Vector3(Math.random()-0.5, 0, Math.random()-0.5).normalize(), // 초기 랜덤 방향
+        state: 'wander', // wander, seek, dead
+        target: null
+    };
+    
+    group.name = `mouse_${Date.now()}`;
+    drawingGroup.add(group);
+    mouseAgents.push(group);
+}
+
+function createCheeseItem(position) {
+    const geometry = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16);
+    const material = new THREE.MeshStandardMaterial({ color: 0xfbbf24 }); // 노란색
+    const cheese = new THREE.Mesh(geometry, material);
+    
+    if (currentPlane === 'horizontal') {
+        cheese.position.set(position.x, position.y + 0.05, position.z);
+    } else {
+        cheese.position.copy(position);
+    }
+    
+    cheese.name = `cheese_${Date.now()}`;
+    cheese.userData = { isCheese: true };
+    
+    drawingGroup.add(cheese);
+    cheeseItems.push(cheese);
+}
+
+function createTrapItem(position) {
+    const geometry = new THREE.BoxGeometry(0.6, 0.05, 0.6);
+    const material = new THREE.MeshStandardMaterial({ color: 0x374151 }); // 검은색
+    const trap = new THREE.Mesh(geometry, material);
+    
+    // 미끼 부분 (빨간 점)
+    const baitGeo = new THREE.SphereGeometry(0.05, 8, 8);
+    const baitMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const bait = new THREE.Mesh(baitGeo, baitMat);
+    bait.position.y = 0.05;
+    trap.add(bait);
+    
+    if (currentPlane === 'horizontal') {
+        trap.position.set(position.x, position.y + 0.025, position.z);
+    } else {
+        trap.position.copy(position);
+    }
+    
+    trap.name = `trap_${Date.now()}`;
+    trap.userData = { isTrap: true };
+    
+    drawingGroup.add(trap);
+    trapItems.push(trap);
+}
+
+function clearMouseItems() {
+    // 쥐, 치즈, 덫 모두 제거
+    const toRemove = [];
+    drawingGroup.children.forEach(child => {
+        if (child.userData.isMouseAgent || child.userData.isCheese || child.userData.isTrap) {
+            toRemove.push(child);
+        }
+    });
+    
+    toRemove.forEach(obj => {
+        drawingGroup.remove(obj);
+        // 메모리 해제 등은 생략
+    });
+    
+    mouseAgents = [];
+    cheeseItems = [];
+    trapItems = [];
+    
+    showStatus('시뮬레이션이 초기화되었습니다.');
+}
+
+//함수를 아래 코드로 완전히 교체하세요.
+
+function updateMouseSimulation() {
+    const speedVal = parseFloat(document.getElementById('mouseSpeed').value);
+    const moveSpeed = speedVal * 0.03; // 속도 계수
+    
+    // 설정값
+    const detectRadius = 15.0; // 치즈 감지 거리 (넓게)
+    const eatRadius = 0.8;     // 치즈 먹는 거리
+    const trapRadius = 0.5;    // 덫 걸리는 거리
+    const wallCheckDist = 1.0; // 벽 감지 거리
+    const mapLimit = 9.5;      // 맵 밖으로 나가지 못하게 하는 한계선
+
+    const raycaster = new THREE.Raycaster();
+    
+    mouseAgents.forEach(mouse => {
+        // --- 0. 덫에 걸린 상태 처리 (3초 대기) ---
+        if (mouse.userData.state === 'trapped') {
+            if (Date.now() - mouse.userData.trapTime > 3000) {
+                // 3초 지남: 덫 제거 및 해방
+                const trap = mouse.userData.trappedBy;
+                if (trap) {
+                    drawingGroup.remove(trap);
+                    const idx = trapItems.indexOf(trap);
+                    if (idx > -1) trapItems.splice(idx, 1);
+                }
+                mouse.userData.state = 'wander'; // 다시 움직임
+                mouse.userData.trappedBy = null;
+            }
+            return; // 덫에 걸려있으면 아래 이동 로직 실행 안 함 (멈춤)
+        }
+
+        // --- 1. 평면 고정 (절대 날아다니지 않게 함) ---
+        // 현재 평면에 딱 붙여버립니다. 시선도 수평으로만 돌리게 됩니다.
+        if (currentPlane === 'horizontal') {
+            mouse.position.y = planePosition.y + 0.15; // 바닥 높이 고정
+            mouse.rotation.x = 0; 
+            mouse.rotation.z = 0;
+        } else if (currentPlane === 'vertical-x') {
+            mouse.position.x = planePosition.x + 0.15;
+            mouse.rotation.y = 0;
+            mouse.rotation.z = 0;
+        } else if (currentPlane === 'vertical-z') {
+            mouse.position.z = planePosition.z + 0.15;
+            mouse.rotation.x = 0;
+            mouse.rotation.y = 0;
+        }
+
+        // --- 2. 덫 충돌 체크 ---
+        for (let i = 0; i < trapItems.length; i++) {
+            if (mouse.position.distanceTo(trapItems[i].position) < trapRadius) {
+                // 덫에 걸림!
+                mouse.userData.state = 'trapped';
+                mouse.userData.trapTime = Date.now(); // 걸린 시간 기록
+                mouse.userData.trappedBy = trapItems[i]; // 어떤 덫인지 기록
+                return; // 즉시 정지
+            }
+        }
+
+        // --- 3. 벽/객체 감지 (레이캐스트) ---
+        let isBlocked = false;
+        
+        // 쥐의 정면 방향
+        const direction = new THREE.Vector3(0, 0, 1).applyQuaternion(mouse.quaternion);
+        raycaster.set(mouse.position, direction);
+        
+        // 충돌 검사 (자기 자신, 바닥, 치즈, 덫 제외한 모든 객체)
+        const intersects = raycaster.intersectObjects(drawingGroup.children, true).filter(hit => {
+            let obj = hit.object;
+            while(obj.parent && obj.parent !== drawingGroup) obj = obj.parent;
+            
+            return obj !== mouse && 
+                   !obj.userData.isMouseAgent && 
+                   !obj.userData.isCheese && 
+                   !obj.userData.isTrap &&
+                   !hit.object.name.startsWith('plain_') &&
+                   !hit.object.name.startsWith('paint_') &&
+                   !hit.object.name.startsWith('video_');
+        });
+
+        // 벽이 앞에 있는가?
+        if (intersects.length > 0 && intersects[0].distance < wallCheckDist) {
+            isBlocked = true;
+            // 벽이 있으면 랜덤하게 회전 (뚫고 가지 않음)
+            mouse.rotateY((Math.random() > 0.5 ? 1 : -1) * 0.2);
+        }
+
+        // --- 4. 맵 경계(Frame) 체크 ---
+        // 맵 끝에 다다르면 강제로 중앙을 보게 함
+        if (!isBlocked) { // 벽에 막혀있지 않을 때만 체크
+            if (Math.abs(mouse.position.x) > mapLimit || Math.abs(mouse.position.z) > mapLimit) {
+                const center = new THREE.Vector3(0, mouse.position.y, 0); // 높이는 유지
+                mouse.lookAt(center);
+                mouse.translateZ(moveSpeed); // 안쪽으로 이동
+                return; // 이번 프레임 이동 끝
+            }
+        }
+
+        // --- 5. 행동 결정 (치즈 찾기 vs 배회) ---
+        if (!isBlocked) {
+            let targetCheese = null;
+            let minDist = Infinity;
+
+            // 치즈 탐색
+            cheeseItems.forEach(cheese => {
+                const d = mouse.position.distanceTo(cheese.position);
+                if (d < detectRadius && d < minDist) {
+                    minDist = d;
+                    targetCheese = cheese;
+                }
+            });
+
+            if (targetCheese) {
+                // [치즈 발견]
+                const d = mouse.position.distanceTo(targetCheese.position);
+                
+                // 먹기
+                if (d < eatRadius) {
+                    drawingGroup.remove(targetCheese);
+                    const idx = cheeseItems.indexOf(targetCheese);
+                    if (idx > -1) cheeseItems.splice(idx, 1);
+                    mouse.scale.multiplyScalar(1.1); // 살찜 효과
+                } else {
+                    // 치즈 바라보기 (높이 무시하고 수평 회전만)
+                    const targetPos = targetCheese.position.clone();
+                    
+                    // 쥐와 같은 높이로 타겟 좌표 보정 -> 고개를 위아래로 꺾지 않음
+                    if (currentPlane === 'horizontal') targetPos.y = mouse.position.y;
+                    else if (currentPlane === 'vertical-x') targetPos.x = mouse.position.x;
+                    else targetPos.z = mouse.position.z;
+
+                    mouse.lookAt(targetPos);
+                    mouse.translateZ(moveSpeed); // 치즈 향해 전진
+                }
+            } else {
+                // [배회 모드]
+                // 가끔 랜덤하게 방향 전환
+                if (Math.random() < 0.05) {
+                    mouse.rotateY((Math.random() - 0.5) * 1.0);
+                }
+                mouse.translateZ(moveSpeed); // 그냥 전진
+            }
+        }
+    });
+}
+
+// --- 배경(Background) 변경 기능 구현 ---
+
+function toggleBgPanel() {
+    const panel = document.getElementById('bg-panel');
+    const isHidden = panel.style.display === 'none' || panel.style.display === '';
+    
+    panel.style.display = isHidden ? 'flex' : 'none';
+    
+    if (isHidden) {
+        // 다른 패널 닫기
+        const panels = ['pen-panel', 'map-panel', 'shapes-panel', 'text-panel', 'image-panel', 'paint-panel', 'bridge-panel', 'rotate-panel', 'animation-panel', 'audio-panel', 'polygon-panel', 'sculpt-panel', 'detail-panel', 'video-panel', 'mouse-panel'];
+        panels.forEach(id => {
+            const p = document.getElementById(id);
+            if(p) p.style.display = 'none';
+        });
+        closeObjectInfo();
+    }
+}
+
+// 1. 이미지 파일로 배경 설정
+function handleBackgroundImage(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // 카메라가 켜져있다면 끄기
+    stopCameraBackground();
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.load(e.target.result, function(texture) {
+            scene.background = texture; // 씬 배경 교체
+            showStatus('배경 이미지가 적용되었습니다.');
+        });
+    };
+    reader.readAsDataURL(file);
+}
+
+// 2. 카메라(웹캠)로 배경 설정 (AR 모드)
+async function toggleCameraBackground() {
+    const btn = document.getElementById('btnBgCamera');
+    
+    // 이미 켜져있으면 끄기
+    if (bgCameraStream) {
+        stopCameraBackground();
+        return;
+    }
+
+    try {
+        // 카메라 접근 요청
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+                facingMode: 'environment', // 후면 카메라 우선 (모바일)
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
+            }, 
+            audio: false 
+        });
+        
+        bgCameraStream = stream;
+        
+        // 비디오 엘리먼트 생성
+        bgVideoElement = document.createElement('video');
+        bgVideoElement.srcObject = stream;
+        bgVideoElement.play();
+        bgVideoElement.playsInline = true; // 모바일 호환
+
+        // 비디오 텍스처 생성 및 배경 설정
+        const texture = new THREE.VideoTexture(bgVideoElement);
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        texture.format = THREE.RGBFormat;
+        
+        scene.background = texture;
+        
+        // 버튼 상태 변경
+        btn.innerHTML = '<span>🚫</span> 카메라 끄기';
+        btn.classList.add('active');
+        
+        showStatus('카메라 배경이 적용되었습니다. (AR 모드)');
+
+    } catch (err) {
+        console.error('카메라 접근 실패:', err);
+        alert('카메라에 접근할 수 없습니다. 권한을 확인해주세요.');
+        stopCameraBackground();
+    }
+}
+
+// 카메라 스트림 정지
+function stopCameraBackground() {
+    if (bgCameraStream) {
+        bgCameraStream.getTracks().forEach(track => track.stop());
+        bgCameraStream = null;
+    }
+    
+    if (bgVideoElement) {
+        bgVideoElement.srcObject = null;
+        bgVideoElement = null;
+    }
+
+    // 버튼 상태 복구
+    const btn = document.getElementById('btnBgCamera');
+    if (btn) {
+        btn.innerHTML = '<span>📷</span> 카메라 켜기';
+        btn.classList.remove('active');
+    }
+}
+
+// 3. 배경 초기화 (기본색)
+function resetBackground() {
+    stopCameraBackground(); // 카메라 끄기
+    document.getElementById('bgImageFile').value = ''; // 파일 입력 초기화
+    
+    // 기본 배경색으로 복구
+    scene.background = new THREE.Color(0x1a1a2e); // init()함수의 초기 색상과 동일하게
+    showStatus('배경이 초기화되었습니다.');
+}
+
+// --- Math(수학 시각화) 기능 구현 ---
+
+function toggleMathPanel() {
+    const panel = document.getElementById('math-panel');
+    const isHidden = panel.style.display === 'none' || panel.style.display === '';
+    
+    panel.style.display = isHidden ? 'flex' : 'none';
+    
+    if (isHidden) {
+        // 다른 패널 닫기
+        const panels = ['pen-panel', 'map-panel', 'shapes-panel', 'text-panel', 'image-panel', 'paint-panel', 'bridge-panel', 'rotate-panel', 'animation-panel', 'audio-panel', 'polygon-panel', 'sculpt-panel', 'detail-panel', 'video-panel', 'mouse-panel', 'bg-panel'];
+        panels.forEach(id => {
+            const p = document.getElementById(id);
+            if(p) p.style.display = 'none';
+        });
+        closeObjectInfo();
+    }
+}
+
+function generateMathSurface() {
+    const formulaInput = document.getElementById('mathFormula').value;
+    const range = parseFloat(document.getElementById('mathRange').value) || 10;
+    const segments = parseInt(document.getElementById('mathSegments').value) || 50;
+    const isWireframe = document.getElementById('mathWireframe').checked;
+
+    try {
+        // 1. 수식 파싱 함수 생성 (Math 객체의 함수들을 직접 쓸 수 있게 with 사용)
+        // 예: "sin(x)" -> Math.sin(x) 로 인식되도록 함
+        const mathFunc = new Function('x', 'z', `
+            with (Math) {
+                try {
+                    return ${formulaInput};
+                } catch (e) {
+                    return 0;
+                }
+            }
+        `);
+
+        // 테스트 실행 (에러 체크)
+        mathFunc(0, 0);
+
+        // 2. 지오메트리 생성 (PlaneGeometry 활용)
+        // x, z 평면을 기준으로 생성하므로 PlaneGeometry(width, height) 사용
+        const geometry = new THREE.PlaneGeometry(range, range, segments, segments);
+        
+        // 3. 버텍스 높이(Y) 조절
+        const posAttribute = geometry.attributes.position;
+        const vertex = new THREE.Vector3();
+
+        for (let i = 0; i < posAttribute.count; i++) {
+            // PlaneGeometry는 기본적으로 XY 평면에 생성되므로,
+            // 여기서는 시각적으로 XZ 평면인 것처럼 계산하기 위해 좌표를 해석합니다.
+            // Plane의 x좌표 -> 우리의 x
+            // Plane의 y좌표 -> 우리의 z (3D 공간상)
+            
+            const x = posAttribute.getX(i);
+            const z = posAttribute.getY(i); // Plane의 Y를 우리의 Z로 사용
+            
+            // 수식 계산
+            const y = mathFunc(x, z);
+            
+            // 계산된 Y값을 Z축(Plane기준)에 할당 -> 나중에 메쉬를 회전시켜서 맞춤
+            posAttribute.setZ(i, y);
+        }
+
+        geometry.computeVertexNormals();
+
+        // 4. 머티리얼 설정
+        const material = new THREE.MeshStandardMaterial({
+            color: color, // 현재 선택된 색상 사용
+            side: THREE.DoubleSide,
+            roughness: 0.3,
+            metalness: 0.2,
+            wireframe: isWireframe
+        });
+
+        const mesh = new THREE.Mesh(geometry, material);
+
+        // 5. 위치 및 회전 설정
+        // PlaneGeometry는 XY 평면에 서 있으므로, XZ 평면(바닥)과 맞추기 위해 -90도 회전
+        mesh.rotation.x = -Math.PI / 2;
+        
+        if (currentPlane === 'horizontal') {
+            mesh.position.set(0, planePosition.y, 0);
+        } else if (currentPlane === 'vertical-x') {
+            mesh.rotation.x = 0;
+            mesh.rotation.y = -Math.PI / 2;
+            mesh.position.set(planePosition.x, 0, 0);
+        } else if (currentPlane === 'vertical-z') {
+            mesh.rotation.x = 0;
+            mesh.position.set(0, 0, planePosition.z);
+        }
+
+        mesh.name = `math_${mathMeshCounter++}`;
+        drawingGroup.add(mesh);
+
+        showStatus(`그래프 y = ${formulaInput} 생성 완료`);
+        saveState();
+        toggleMathPanel(); // 패널 닫기
+
+    } catch (error) {
+        console.error(error);
+        alert("수식에 오류가 있습니다.\n올바른 자바스크립트 Math 문법인지 확인해주세요.\n(예: sin(x) * x)");
+    }
+}
+
+function selectMathExample() {
+    const select = document.getElementById('mathExamples');
+    const input = document.getElementById('mathFormula');
+    
+    // 선택된 값이 있으면 수식 입력창에 적용
+    if (select.value) {
+        input.value = select.value;
+        
+        // 예제에 따라 범위나 정밀도를 조금씩 조정해주면 더 예쁘게 나옵니다 (선택사항)
+        // 여기서는 기본값 유지하거나, 필요시 로직 추가 가능
+        // showStatus('예제 수식이 입력되었습니다. [그래프 생성]을 눌러보세요.');
+    }
 }
 
 // 애플리케이션 시작
