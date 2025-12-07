@@ -57,6 +57,10 @@
                     <span class="menu-icon">∑</span>
                     <span>Math</span>
                 </button>
+                <button class="menu-btn" id="voiceBtn" onclick="toggleVoiceControl()">
+                    <span class="menu-icon">🎙️</span>
+                    <span>음성 명령</span>
+                </button>
                 <button class="menu-btn" id="shapeDrawBtn" onclick="toggleShapeDrawingMode()">
                     <span class="menu-icon">📐</span>
                     <span>도형 그리기</span>
@@ -689,6 +693,7 @@
             </div>
             
             <div id="status"></div>
+            <div id="voice-status" style="display:none;"></div>
             <div id="drawing-info" class="drawing-info"></div>
             <div id="size-display" class="size-display" style="display: none;"></div>
         </div>
@@ -1067,6 +1072,15 @@
         <div style="display: flex; gap: 8px; flex-direction: column;">
             <button onclick="generateMathSurface()" style="background: #8b5cf6; color: white; padding: 10px; border-radius: 6px; border: none; cursor: pointer;">📈 그래프 생성</button>
             <button onclick="toggleMathPanel()" style="background: #4b5563; color: white; padding: 8px; border-radius: 6px; border: none; cursor: pointer;">닫기</button>
+        </div>
+    </div>
+
+    <div id="voice-help-panel">
+        <h3>🎙️ 음성 명령어 목록</h3>
+        <div id="voice-command-list">
+            </div>
+        <div style="margin-top: 10px; text-align: center;">
+            <button onclick="closeVoiceHelp()" style="background: #4b5563; color: white; padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer;">닫기</button>
         </div>
     </div>
 

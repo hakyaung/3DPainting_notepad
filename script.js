@@ -142,6 +142,10 @@ let bgVideoElement = null; // 카메라 영상용 비디오 태그
 // --- Math 기능 관련 변수 ---
 let mathMeshCounter = 0;
 
+// --- 음성 인식 관련 변수 ---
+let recognition = null;
+let isVoiceListening = false;
+
 // 애플리케이션 초기화
 function init() {
     const canvas = document.getElementById('canvas');
@@ -6286,6 +6290,259 @@ function selectMathExample() {
         // 여기서는 기본값 유지하거나, 필요시 로직 추가 가능
         // showStatus('예제 수식이 입력되었습니다. [그래프 생성]을 눌러보세요.');
     }
+}
+
+// --- 음성 명령(Voice Command) 기능 구현 ---
+// --- 음성 명령(Voice Command) 확장 기능 구현 ---
+
+// 1. 명령어 데이터베이스 정의 (확장성 용이)
+const voiceCommandDB = [
+    {
+        category: "시스템",
+        desc: "명령어 목록 보기",
+        keywords: ["명령어", "도움말", "알려줘", "리스트"],
+        action: showVoiceHelp
+    },
+    {
+        category: "시스템",
+        desc: "음성 인식 종료",
+        keywords: ["그만", "종료", "꺼줘"],
+        action: toggleVoiceControl
+    },
+    {
+        category: "시스템",
+        desc: "전체 삭제 (초기화)",
+        keywords: ["전체삭제", "다지워", "초기화", "깨끗하게"],
+        action: () => { if(confirm("모든 그림을 삭제할까요?")) clearDrawings(); }
+    },
+    {
+        category: "시스템",
+        desc: "작업 취소 (되돌리기)",
+        keywords: ["취소", "되돌리기", "실수", "빽"],
+        action: undo
+    },
+    {
+        category: "시스템",
+        desc: "파일 저장",
+        keywords: ["저장", "다운로드"],
+        action: saveAsOBJ
+    },
+    {
+        category: "시스템",
+        desc: "카메라 리셋",
+        keywords: ["카메라리셋", "원위치", "시점초기화"],
+        action: resetCamera
+    },
+    
+    // --- 도형 추가 ---
+    { category: "도형", desc: "큐브(상자) 추가", keywords: ["큐브", "상자", "네모", "박스"], action: addCube },
+    { category: "도형", desc: "구(공) 추가", keywords: ["구", "공", "원형", "볼"], action: addSphere },
+    { category: "도형", desc: "원기둥 추가", keywords: ["원기둥", "실린더", "기둥"], action: addCylinder },
+    { category: "도형", desc: "원뿔 추가", keywords: ["원뿔", "꼬깔", "콘"], action: addCone },
+    { category: "도형", desc: "피라미드 추가", keywords: ["피라미드"], action: addPyramid },
+    { category: "도형", desc: "토러스(도넛) 추가", keywords: ["토러스", "도넛", "링"], action: addTorus },
+    { category: "도형", desc: "평면(판) 추가", keywords: ["평면", "판", "플레이트"], action: addPlane },
+    { category: "도형", desc: "나무 추가", keywords: ["나무", "트리"], action: addTree },
+    { category: "도형", desc: "별 추가", keywords: ["별", "스타"], action: addStar },
+    { category: "도형", desc: "하트 추가", keywords: ["하트", "사랑"], action: addHeart },
+    { category: "도형", desc: "화살표 추가", keywords: ["화살표"], action: addArrow },
+
+    // --- 지형(맵) ---
+    { category: "지형", desc: "평지(땅) 생성", keywords: ["평지", "땅", "바닥"], action: addPlain },
+    { category: "지형", desc: "산 생성", keywords: ["산", "마운틴"], action: addMountain },
+    { category: "지형", desc: "언덕 생성", keywords: ["언덕"], action: addHill },
+    { category: "지형", desc: "계곡 생성", keywords: ["계곡"], action: addValley },
+    { category: "지형", desc: "호수(물) 생성", keywords: ["호수", "물", "연못"], action: addLake },
+    { category: "지형", desc: "사막 생성", keywords: ["사막", "모래"], action: addDesert },
+
+    // --- 모드 변경 ---
+    { category: "모드", desc: "기본 그리기 모드", keywords: ["그리기", "드로잉", "펜모드"], action: () => {
+        isEraserMode = false; isPointerMode = false; isCameraMode = false; 
+        document.getElementById('modeIndicator').textContent = '드로잉 모드';
+        showStatus('드로잉 모드');
+    }},
+    { category: "모드", desc: "지우개 모드", keywords: ["지우개", "삭제모드"], action: toggleEraser },
+    { category: "모드", desc: "포인터(선택) 모드", keywords: ["포인터", "선택", "마우스"], action: togglePointer },
+    { category: "모드", desc: "카메라 이동 모드", keywords: ["카메라모드", "이동모드"], action: toggleCameraMode },
+    { category: "모드", desc: "브리지(연결) 모드", keywords: ["브리지", "연결"], action: toggleBridgeMode },
+    { category: "모드", desc: "도형 그리기 모드", keywords: ["도형그리기", "쉐이프"], action: toggleShapeDrawingMode },
+    { category: "모드", desc: "페인트 모드", keywords: ["페인트", "색칠"], action: togglePaintMode },
+    { category: "모드", desc: "폴리곤 모드", keywords: ["폴리곤", "다각형"], action: togglePolygonPanel }, // 패널 열면서 시작
+    { category: "모드", desc: "스컬프팅 모드", keywords: ["스컬프팅", "조각"], action: toggleSculptPanel },
+    { category: "모드", desc: "세부조각(점) 모드", keywords: ["세부조각", "점편집", "버텍스"], action: toggleDetailPanel },
+
+    // --- 패널 열기/닫기 ---
+    { category: "패널", desc: "펜 패널 열기", keywords: ["펜설정", "펜메뉴"], action: togglePenPanel },
+    { category: "패널", desc: "맵 패널 열기", keywords: ["맵설정", "지형메뉴"], action: toggleMapPanel },
+    { category: "패널", desc: "텍스트 패널 열기", keywords: ["글자", "텍스트"], action: toggleTextPanel },
+    { category: "패널", desc: "이미지 패널 열기", keywords: ["이미지", "사진"], action: toggleImagePanel },
+    { category: "패널", desc: "회전 패널 열기", keywords: ["회전"], action: toggleRotatePanel },
+    { category: "패널", desc: "애니메이션 패널", keywords: ["애니메이션"], action: toggleAnimationPanel },
+    { category: "패널", desc: "오디오 패널", keywords: ["오디오", "음악"], action: toggleAudioPanel },
+    { category: "패널", desc: "배경 패널", keywords: ["배경", "바탕화면"], action: toggleBgPanel },
+    { category: "패널", desc: "Math(수학) 패널", keywords: ["수학", "함수", "그래프"], action: toggleMathPanel },
+
+    // --- MOUSE 시뮬레이션 ---
+    { category: "MOUSE", desc: "MOUSE 모드 시작", keywords: ["마우스모드", "쥐모드", "쥐시뮬레이션"], action: startMouseMode },
+    { category: "MOUSE", desc: "쥐 소환", keywords: ["쥐소환", "쥐추가", "마우스추가"], action: () => {
+        if(!isMouseMode) startMouseMode();
+        createMouseAgent(new THREE.Vector3(0, planePosition.y, 0));
+        showStatus('쥐가 소환되었습니다');
+    }},
+    { category: "MOUSE", desc: "치즈 추가", keywords: ["치즈", "먹이"], action: () => {
+        if(!isMouseMode) startMouseMode();
+        createCheeseItem(new THREE.Vector3(Math.random()*2, planePosition.y, Math.random()*2));
+        showStatus('치즈가 추가되었습니다');
+    }},
+    { category: "MOUSE", desc: "덫 추가", keywords: ["덫", "함정"], action: () => {
+        if(!isMouseMode) startMouseMode();
+        createTrapItem(new THREE.Vector3(Math.random()*2, planePosition.y, Math.random()*2));
+        showStatus('덫이 추가되었습니다');
+    }},
+    { category: "MOUSE", desc: "시뮬레이션 초기화", keywords: ["쥐삭제", "시뮬레이션초기화"], action: clearMouseItems },
+
+    // --- 동영상 ---
+    { category: "동영상", desc: "동영상 패널", keywords: ["동영상", "비디오"], action: toggleVideoPanel },
+];
+
+function initVoiceRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    
+    if (!SpeechRecognition) {
+        alert("이 브라우저는 음성 인식을 지원하지 않습니다.");
+        return null;
+    }
+
+    const rec = new SpeechRecognition();
+    rec.lang = 'ko-KR';
+    rec.continuous = true;
+    rec.interimResults = false;
+
+    rec.onstart = function() {
+        isVoiceListening = true;
+        document.getElementById('voiceBtn').classList.add('listening');
+        showVoiceStatus("듣고 있습니다... ('명령어 알려줘'라고 말해보세요)");
+    };
+
+    rec.onend = function() {
+        if (isVoiceListening) {
+            rec.start();
+        } else {
+            document.getElementById('voiceBtn').classList.remove('listening');
+            hideVoiceStatus();
+        }
+    };
+
+    rec.onresult = function(event) {
+        const last = event.results.length - 1;
+        const transcript = event.results[last][0].transcript.trim();
+        showVoiceStatus(`인식됨: "${transcript}"`);
+        processVoiceCommand(transcript);
+    };
+
+    rec.onerror = function(event) {
+        if (event.error === 'not-allowed') {
+            alert("마이크 권한이 필요합니다.");
+            toggleVoiceControl();
+        }
+    };
+
+    return rec;
+}
+
+function toggleVoiceControl() {
+    if (!recognition) {
+        recognition = initVoiceRecognition();
+        if (!recognition) return;
+    }
+
+    if (isVoiceListening) {
+        isVoiceListening = false;
+        recognition.stop();
+        showStatus("음성 인식이 종료되었습니다.");
+    } else {
+        isVoiceListening = true;
+        recognition.start();
+        showStatus("음성 제어가 시작되었습니다.");
+    }
+}
+
+function showVoiceStatus(msg) {
+    const el = document.getElementById('voice-status');
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+function hideVoiceStatus() {
+    document.getElementById('voice-status').style.display = 'none';
+}
+
+function processVoiceCommand(command) {
+    // 공백 제거하여 매칭 확률 높임
+    const cleanCmd = command.replace(/\s+/g, '');
+    let matched = false;
+
+    // DB 순회하며 매칭 확인
+    for (const item of voiceCommandDB) {
+        for (const keyword of item.keywords) {
+            if (cleanCmd.includes(keyword)) {
+                console.log(`명령 실행: ${item.desc} (키워드: ${keyword})`);
+                item.action();
+                matched = true;
+                break;
+            }
+        }
+        if (matched) break;
+    }
+
+    if (!matched) {
+        showVoiceStatus(`알 수 없는 명령입니다: "${command}"`);
+    }
+}
+
+// --- 도움말 패널 기능 ---
+
+function showVoiceHelp() {
+    const panel = document.getElementById('voice-help-panel');
+    const list = document.getElementById('voice-command-list');
+    
+    // 리스트 초기화
+    list.innerHTML = '';
+    
+    // 카테고리별로 그룹화
+    const groups = {};
+    voiceCommandDB.forEach(item => {
+        if (!groups[item.category]) groups[item.category] = [];
+        groups[item.category].push(item);
+    });
+
+    // HTML 생성
+    for (const [category, items] of Object.entries(groups)) {
+        const catDiv = document.createElement('div');
+        catDiv.className = 'voice-category';
+        catDiv.textContent = category;
+        list.appendChild(catDiv);
+
+        items.forEach(item => {
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'voice-item';
+            
+            // 대표 키워드 2개만 표시
+            const keywordsText = item.keywords.slice(0, 2).join(', ');
+            
+            itemDiv.innerHTML = `
+                <span>${item.desc}</span>
+                <span class="keywords">"${keywordsText}"</span>
+            `;
+            list.appendChild(itemDiv);
+        });
+    }
+
+    panel.style.display = 'flex';
+}
+
+function closeVoiceHelp() {
+    document.getElementById('voice-help-panel').style.display = 'none';
 }
 
 // 애플리케이션 시작
